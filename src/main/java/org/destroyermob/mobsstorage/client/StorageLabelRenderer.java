@@ -112,15 +112,12 @@ public final class StorageLabelRenderer {
         PoseStack poses = event.getPoseStack();
         poses.pushPose();
         poses.translate(relative.x, relative.y + bob, relative.z);
-        switch (label.face()) {
-            case UP -> poses.mulPose(Axis.XP.rotationDegrees(90.0F));
-            case DOWN -> poses.mulPose(Axis.XP.rotationDegrees(-90.0F));
-            default -> poses.mulPose(Axis.YP.rotationDegrees(180.0F - label.face().toYRot()));
-        }
+        poses.mulPose(camera.rotation());
+        poses.mulPose(Axis.YP.rotationDegrees(180.0F));
         poses.scale(0.55F, 0.55F, 0.55F);
         minecraft.getItemRenderer().renderStatic(
                 new ItemStack(item),
-                ItemDisplayContext.FIXED,
+                ItemDisplayContext.GUI,
                 LevelRenderer.getLightColor(minecraft.level, pos),
                 OverlayTexture.NO_OVERLAY,
                 poses,

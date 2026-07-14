@@ -3,9 +3,11 @@ package org.destroyermob.mobsstorage.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -33,6 +35,7 @@ public final class StorageLabelScreen extends Screen {
 
     private final OpenLabelEditorPayload payload;
     private final List<Item> allItems;
+    private final List<String> allItemTags;
     private final List<String> filterEntries;
     private EditBox search;
     private EditBox filterInput;
@@ -55,6 +58,10 @@ public final class StorageLabelScreen extends Screen {
         this.allItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
                 .sorted(Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString()))
+                .toList();
+        this.allItemTags = BuiltInRegistries.ITEM.getTagNames()
+                .map(tag -> "#" + tag.location())
+                .sorted()
                 .toList();
     }
 
@@ -372,29 +379,33 @@ public final class StorageLabelScreen extends Screen {
     }
 
     private List<String> matchingSuggestions() {
-        if (selectedIcon == null) {
-            return List.of();
+        Set<String> selectedTags = new HashSet<>();
+        if (selectedIcon != null) {
+            BuiltInRegistries.ITEM.get(selectedIcon).getDefaultInstance().getTags()
+                    .map(tag -> "#" + tag.location())
+                    .forEach(selectedTags::add);
         }
-        Item item = BuiltInRegistries.ITEM.get(selectedIcon);
         String query = filterInput == null ? "" : filterInput.getValue().trim().toLowerCase(Locale.ROOT);
-        return item.getDefaultInstance().getTags()
-                .map(tag -> "#" + tag.location())
+        return allItemTags.stream()
                 .filter(tag -> !filterEntries.contains(tag))
                 .filter(tag -> query.isEmpty() || tag.toLowerCase(Locale.ROOT).contains(query))
                 .sorted(Comparator
-                        .comparingInt(StorageLabelScreen::tagPriority)
-                        .thenComparing(String::toString))
+                        .comparingInt((String tag) -> tagPriority(tag, selectedTags))
+                        .thenComparing(Comparator.naturalOrder()))
                 .toList();
     }
 
-    private static int tagPriority(String tag) {
-        if (tag.startsWith("#c:")) {
+    private static int tagPriority(String tag, Set<String> selectedTags) {
+        if (selectedTags.contains(tag)) {
             return 0;
         }
-        if (tag.startsWith("#minecraft:")) {
+        if (tag.startsWith("#c:")) {
             return 1;
         }
-        return 2;
+        if (tag.startsWith("#minecraft:")) {
+            return 2;
+        }
+        return 3;
     }
 
     private void clampOffsets() {
