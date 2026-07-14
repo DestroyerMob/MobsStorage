@@ -4,8 +4,10 @@ import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -97,23 +99,33 @@ public final class NetworkGameTests {
 
         first.setItem(0, ItemStack.EMPTY);
         third.setItem(0, new ItemStack(Items.COBBLESTONE, 64));
-        ItemStack nearlyBroken = new ItemStack(Items.IRON_PICKAXE);
+        ItemStack nearlyBroken = new ItemStack(Items.GOLDEN_PICKAXE);
         nearlyBroken.setDamageValue(nearlyBroken.getMaxDamage() - 1);
         player.setItemInHand(InteractionHand.MAIN_HAND, nearlyBroken);
-        third.setItem(0, new ItemStack(Items.IRON_PICKAXE));
+        ItemStack differentlyDamagedReplacement = new ItemStack(Items.GOLDEN_PICKAXE);
+        differentlyDamagedReplacement.setDamageValue(7);
+        differentlyDamagedReplacement.set(DataComponents.CUSTOM_NAME, Component.literal("Network spare"));
+        third.setItem(0, differentlyDamagedReplacement);
         nearlyBroken.hurtAndBreak(1, player, EquipmentSlot.MAINHAND);
         helper.assertTrue(nearlyBroken.isEmpty(), "Test pickaxe did not break");
         NetworkRefillService.onPlayerTick(new net.neoforged.neoforge.event.tick.PlayerTickEvent.Post(player));
-        helper.assertTrue(player.getMainHandItem().is(Items.IRON_PICKAXE),
-                "Broken tool was not restored through the real durability trigger");
+        helper.assertTrue(player.getMainHandItem().is(Items.GOLDEN_PICKAXE),
+                "Broken tool was not restored by registered item ID");
+        helper.assertTrue(player.getMainHandItem().getDamageValue() == 7,
+                "Refill did not pull the differently damaged stored tool");
+        helper.assertTrue(Component.literal("Network spare").equals(
+                        player.getMainHandItem().get(DataComponents.CUSTOM_NAME)),
+                "Refill did not preserve the replacement tool's components");
         player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        third.setItem(1, new ItemStack(Items.BREAD, 16));
+        ItemStack namedBread = new ItemStack(Items.BREAD, 16);
+        namedBread.set(DataComponents.CUSTOM_NAME, Component.literal("Network lunch"));
+        third.setItem(1, namedBread);
         NeoForge.EVENT_BUS.post(new LivingEntityUseItemEvent.Finish(
                 player, new ItemStack(Items.BREAD), 0, ItemStack.EMPTY));
         NetworkRefillService.onPlayerTick(new net.neoforged.neoforge.event.tick.PlayerTickEvent.Post(player));
         helper.assertTrue(player.getMainHandItem().is(Items.BREAD)
                         && player.getMainHandItem().getCount() == 16,
-                "Consumed stack was not restored through the use-finish event");
+                "Consumed stack with different components was not restored by registered item ID");
         helper.succeed();
     }
 

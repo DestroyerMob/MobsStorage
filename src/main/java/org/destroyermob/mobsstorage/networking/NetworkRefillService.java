@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.core.GlobalPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
@@ -49,7 +51,7 @@ public final class NetworkRefillService {
         if (original.isEmpty()) return;
         List<PendingRefill> pending = PENDING.computeIfAbsent(player.getUUID(), unused -> new ArrayList<>());
         boolean duplicate = pending.stream().anyMatch(value -> value.hand() == hand
-                && value.original().getItem() == original.getItem());
+                && sameItemId(value.original(), original));
         if (!duplicate) pending.add(new PendingRefill(original.copyWithCount(1), hand));
     }
 
@@ -77,9 +79,9 @@ public final class NetworkRefillService {
 
     private static boolean hasReplacement(ServerPlayer player, ItemStack original) {
         for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
-            if (replacementMatches(original, player.getInventory().getItem(slot))) return true;
+            if (sameItemId(original, player.getInventory().getItem(slot))) return true;
         }
-        return replacementMatches(original, player.getOffhandItem());
+        return sameItemId(original, player.getOffhandItem());
     }
 
     private static boolean inRange(ServerPlayer player, StorageNetwork network) {
@@ -105,7 +107,7 @@ public final class NetworkRefillService {
             for (Container container : containers) {
                 for (int slot = 0; slot < container.getContainerSize() && wanted > 0; slot++) {
                     ItemStack stored = container.getItem(slot);
-                    if (!replacementMatches(original, stored)) continue;
+                    if (!sameItemId(original, stored)) continue;
                     int amount = Math.min(wanted, stored.getCount());
                     ItemStack removed = container.removeItem(slot, amount);
                     if (result.isEmpty()) result = removed;
@@ -119,9 +121,11 @@ public final class NetworkRefillService {
         return new Extracted(ItemStack.EMPTY, List.of());
     }
 
-    private static boolean replacementMatches(ItemStack original, ItemStack candidate) {
-        if (candidate.isEmpty() || original.getItem() != candidate.getItem()) return false;
-        return original.isDamageableItem() || ItemStack.isSameItemSameComponents(original, candidate);
+    static boolean sameItemId(ItemStack expected, ItemStack candidate) {
+        if (expected.isEmpty() || candidate.isEmpty()) return false;
+        ResourceLocation expectedId = BuiltInRegistries.ITEM.getKey(expected.getItem());
+        ResourceLocation candidateId = BuiltInRegistries.ITEM.getKey(candidate.getItem());
+        return expectedId.equals(candidateId);
     }
 
     private record PendingRefill(ItemStack original, InteractionHand hand) {}
