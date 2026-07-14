@@ -85,7 +85,7 @@ public final class StorageNetworkSavedData extends SavedData {
                 nodes.add(nodeTag);
             }
             tag.put("Nodes", nodes);
-            network.source().ifPresent(source -> tag.put("Source", writeGlobalPos(source)));
+            network.origin().ifPresent(origin -> tag.put("Origin", writeGlobalPos(origin)));
             list.add(tag);
         }
         root.put("Networks", list);
@@ -116,11 +116,12 @@ public final class StorageNetworkSavedData extends SavedData {
                             icon == null ? org.destroyermob.mobsstorage.storage.LabelData.AIR : icon));
                 });
             }
-            GlobalPos source = tag.contains("Source", Tag.TAG_COMPOUND)
-                    ? readGlobalPos(tag.getCompound("Source")).orElse(null) : null;
+            CompoundTag originTag = tag.contains("Origin", Tag.TAG_COMPOUND)
+                    ? tag.getCompound("Origin") : tag.getCompound("Source");
+            GlobalPos origin = readGlobalPos(originTag).orElse(null);
             StorageNetwork network = new StorageNetwork(
                     tag.getUUID("Id"), tag.getUUID("Owner"), tag.getString("Name"),
-                    tag.getBoolean("Public"), members, nodes, source);
+                    tag.getBoolean("Public"), members, nodes, origin);
             data.networks.put(network.id(), network);
         }
         return data;

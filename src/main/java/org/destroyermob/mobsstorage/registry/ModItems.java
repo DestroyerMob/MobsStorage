@@ -1,6 +1,7 @@
 package org.destroyermob.mobsstorage.registry;
 
 import java.util.function.Supplier;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -17,6 +18,11 @@ public final class ModItems {
 
     public static final Supplier<Item> NETWORK_WAND = ITEMS.register(
             "network_wand", () -> new NetworkWandItem(new Item.Properties().stacksTo(1)));
+
+    public static final Supplier<BlockItem> NETWORK_INTERFACE = ITEMS.register(
+            ModBlocks.NETWORK_INTERFACE_ID,
+            () -> new BlockItem(ModBlocks.NETWORK_INTERFACE.get(), new Item.Properties())
+    );
 
     private ModItems() {
     }

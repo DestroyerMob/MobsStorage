@@ -17,7 +17,7 @@ public final class StorageNetwork {
     private boolean publicAccess;
     private final Set<UUID> members;
     private final Map<GlobalPos, NodeInfo> nodes;
-    private GlobalPos source;
+    private GlobalPos origin;
 
     public StorageNetwork(UUID id, UUID owner, String name) {
         this(id, owner, name, false, new LinkedHashSet<>(), new LinkedHashMap<>(), null);
@@ -30,7 +30,7 @@ public final class StorageNetwork {
             boolean publicAccess,
             Set<UUID> members,
             Map<GlobalPos, NodeInfo> nodes,
-            GlobalPos source
+            GlobalPos origin
     ) {
         this.id = id;
         this.owner = owner;
@@ -39,7 +39,7 @@ public final class StorageNetwork {
         this.members = new LinkedHashSet<>(members);
         this.members.remove(owner);
         this.nodes = new LinkedHashMap<>(nodes);
-        this.source = source;
+        this.origin = nodes.containsKey(origin) ? origin : null;
     }
 
     public UUID id() { return id; }
@@ -49,7 +49,7 @@ public final class StorageNetwork {
     public Set<UUID> members() { return Set.copyOf(members); }
     public Set<GlobalPos> nodes() { return Set.copyOf(nodes.keySet()); }
     public NodeInfo nodeInfo(GlobalPos node) { return nodes.getOrDefault(node, NodeInfo.EMPTY); }
-    public Optional<GlobalPos> source() { return Optional.ofNullable(source); }
+    public Optional<GlobalPos> origin() { return Optional.ofNullable(origin); }
 
     public boolean isOwner(UUID player) {
         return owner.equals(player);
@@ -72,14 +72,14 @@ public final class StorageNetwork {
     }
 
     boolean removeNode(GlobalPos node) {
-        if (node.equals(source)) {
-            source = null;
+        if (node.equals(origin)) {
+            origin = null;
         }
         return nodes.remove(node) != null;
     }
 
-    void setSource(GlobalPos value) {
-        source = nodes.containsKey(value) ? value : null;
+    void setOrigin(GlobalPos value) {
+        origin = nodes.containsKey(value) ? value : null;
     }
 
     private static String sanitizeName(String value) {

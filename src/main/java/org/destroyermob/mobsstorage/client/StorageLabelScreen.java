@@ -221,14 +221,12 @@ public final class StorageLabelScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderTransparentBackground(graphics);
         int left = panelLeft();
         int right = left + panelWidth();
         graphics.fill(left - 6, 5, right + 6, footerY() + 25, 0xB0101010);
         graphics.renderOutline(left - 6, 5, panelWidth() + 12, footerY() + 20, 0xFF686868);
 
-        // Render widgets first so UI-blur mods finish their post-processing before
-        // the item models and labels are drawn in the final, crisp foreground pass.
         super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawCenteredString(font, title, width / 2, 10, 0xFFFFFF);
 
@@ -246,6 +244,11 @@ public final class StorageLabelScreen extends Screen {
                     List.of(hoveredStack.getHoverName(), Component.literal(hoveredItemId.toString())),
                     Optional.empty(), mouseX, mouseY);
         }
+    }
+
+    /** Prevent Screen.render() from invoking Minecraft's post-process blur after the panel is drawn. */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
     }
 
     private void renderSelectedIcon(GuiGraphics graphics) {

@@ -16,6 +16,7 @@ import net.minecraft.world.level.block.state.properties.ChestType;
 import org.destroyermob.mobsstorage.mixin.CompoundContainerAccessor;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModTags;
+import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
 
 public final class StorageResolver {
     private StorageResolver() {
@@ -26,8 +27,15 @@ public final class StorageResolver {
         return state.is(ModTags.LABELABLE_STORAGE) && level.getBlockEntity(pos) instanceof Container;
     }
 
+    public static boolean networkEligible(Level level, BlockPos pos) {
+        return eligible(level, pos) || level.getBlockEntity(pos) instanceof NetworkInterfaceBlockEntity;
+    }
+
     public static List<BlockEntity> logicalStorage(Level level, BlockPos pos) {
         BlockEntity first = level.getBlockEntity(pos);
+        if (first instanceof NetworkInterfaceBlockEntity) {
+            return List.of(first);
+        }
         if (!(first instanceof Container) || !level.getBlockState(pos).is(ModTags.LABELABLE_STORAGE)) {
             return List.of();
         }

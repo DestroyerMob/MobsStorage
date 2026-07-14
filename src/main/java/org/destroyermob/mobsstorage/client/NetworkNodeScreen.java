@@ -2,7 +2,6 @@ package org.destroyermob.mobsstorage.client;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -14,18 +13,25 @@ import org.destroyermob.mobsstorage.network.SaveNetworkNodePayload;
 public final class NetworkNodeScreen extends Screen {
     private static final int PANEL_WIDTH = 360;
     private static final int PANEL_HEIGHT = 224;
-    private static final int ACCENT = 0xFF71C7E8;
-    private static final int MUTED = 0xFF9BA8B0;
+    private static final int PANEL = 0xFFC6C6C6;
+    private static final int PANEL_LIGHT = 0xFFFFFFFF;
+    private static final int PANEL_DARK = 0xFF373737;
+    private static final int SLOT = 0xFF8B8B8B;
+    private static final int TEXT = 0xFF404040;
+    private static final int MUTED = 0xFF606060;
+    private static final int SLOT_MUTED = 0xFFE0E0E0;
+    private static final int ACTIVE = 0xFF55AA55;
+    private static final int WARNING = 0xFFFFD070;
     private final OpenNetworkNodePayload payload;
     private EditBox name;
     private EditBox priority;
-    private boolean source;
+    private final boolean origin;
     private Component validation = Component.empty();
 
     public NetworkNodeScreen(OpenNetworkNodePayload payload) {
         super(Component.translatable("screen.mobsstorage.node.title"));
         this.payload = payload;
-        this.source = payload.source();
+        this.origin = payload.origin();
     }
 
     @Override
@@ -44,11 +50,6 @@ public final class NetworkNodeScreen extends Screen {
         priority.setValue(Integer.toString(payload.priority()));
         priority.setHint(Component.translatable("screen.mobsstorage.node.priority"));
         priority.setResponder(value -> validatePriority());
-
-        CycleButton<Boolean> sourceButton = addRenderableWidget(CycleButton.onOffBuilder(source).create(
-                x + 140, panelTop() + 112, innerWidth - 140, 20,
-                Component.translatable("screen.mobsstorage.node.source"), (button, value) -> source = value));
-        sourceButton.active = payload.canManage();
 
         int buttonY = panelBottom() - 32;
         int buttonWidth = (innerWidth - 8) / 3;
@@ -80,33 +81,31 @@ public final class NetworkNodeScreen extends Screen {
         validatePriority();
         if (!validation.getString().isEmpty()) return;
         int value = Integer.parseInt(priority.getValue().trim());
-        PacketDistributor.sendToServer(new SaveNetworkNodePayload(payload.pos(), name.getValue(), value, source, unlink));
+        PacketDistributor.sendToServer(new SaveNetworkNodePayload(payload.pos(), name.getValue(), value, unlink));
         if (unlink) onClose();
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
-        graphics.fill(panelLeft() - 3, panelTop() - 3, panelRight() + 3, panelBottom() + 3, 0x80000000);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelBottom(), 0xF0191E22);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelTop() + 52, 0xFF20272C);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelTop() + 2, ACCENT);
-        graphics.fill(panelLeft() + 18, panelTop() + 141, panelRight() - 18, panelTop() + 174, 0xCC20282D);
-        graphics.renderOutline(panelLeft() + 18, panelTop() + 141, panelWidth() - 36, 33, 0xFF3C4A52);
+        renderTransparentBackground(graphics);
+        drawRaisedPanel(graphics, panelLeft(), panelTop(), panelWidth(), panelHeight());
+        graphics.fill(panelLeft() + 3, panelTop() + 51, panelRight() - 3, panelTop() + 52, PANEL_DARK);
+        graphics.fill(panelLeft() + 3, panelTop() + 52, panelRight() - 3, panelTop() + 53, PANEL_LIGHT);
+        drawInset(graphics, panelLeft() + 18, panelTop() + 141, panelWidth() - 36, 33, SLOT);
         super.render(graphics, mouseX, mouseY, partialTick);
 
         graphics.renderFakeItem(Items.CHEST.getDefaultInstance(), panelLeft() + 16, panelTop() + 17);
-        graphics.drawString(font, title, panelLeft() + 40, panelTop() + 14, 0xFFFFFFFF, false);
+        graphics.drawString(font, title, panelLeft() + 40, panelTop() + 14, TEXT, false);
         graphics.drawString(font, payload.networkName(), panelLeft() + 40, panelTop() + 28, MUTED, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.node.name_label"),
-                panelLeft() + 18, panelTop() + 60, 0xFFDCE6EA, false);
+                panelLeft() + 18, panelTop() + 60, TEXT, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.node.priority_label"),
-                panelLeft() + 18, panelTop() + 100, 0xFFDCE6EA, false);
-        graphics.drawString(font, Component.translatable(source
-                        ? "screen.mobsstorage.node.source_active" : "screen.mobsstorage.node.source_inactive"),
-                panelLeft() + 26, panelTop() + 148, source ? 0xFF76D69A : 0xFFE6B866, false);
-        graphics.drawString(font, Component.translatable("screen.mobsstorage.node.source_hint"),
-                panelLeft() + 26, panelTop() + 160, MUTED, false);
+                panelLeft() + 18, panelTop() + 100, TEXT, false);
+        graphics.drawString(font, Component.translatable(origin
+                        ? "screen.mobsstorage.node.origin_active" : "screen.mobsstorage.node.origin_inactive"),
+                panelLeft() + 26, panelTop() + 148, origin ? ACTIVE : WARNING, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.node.origin_hint"),
+                panelLeft() + 26, panelTop() + 160, SLOT_MUTED, false);
         if (!validation.getString().isEmpty()) {
             graphics.drawString(font, validation, panelLeft() + 18, panelBottom() - 44, 0xFFFF7777, false);
         }
@@ -116,11 +115,28 @@ public final class NetworkNodeScreen extends Screen {
         }
     }
 
+    /** Prevent Screen.render() from invoking Minecraft's post-process blur after the panel is drawn. */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    }
+
     private int panelWidth() { return Math.min(PANEL_WIDTH, width - 20); }
     private int panelHeight() { return Math.min(PANEL_HEIGHT, height - 20); }
     private int panelLeft() { return (width - panelWidth()) / 2; }
     private int panelTop() { return (height - panelHeight()) / 2; }
     private int panelRight() { return panelLeft() + panelWidth(); }
     private int panelBottom() { return panelTop() + panelHeight(); }
+    private static void drawRaisedPanel(GuiGraphics graphics, int x, int y, int width, int height) {
+        graphics.fill(x, y, x + width, y + height, PANEL);
+        graphics.fill(x, y, x + width, y + 2, PANEL_LIGHT);
+        graphics.fill(x, y, x + 2, y + height, PANEL_LIGHT);
+        graphics.fill(x, y + height - 2, x + width, y + height, PANEL_DARK);
+        graphics.fill(x + width - 2, y, x + width, y + height, PANEL_DARK);
+    }
+    private static void drawInset(GuiGraphics graphics, int x, int y, int width, int height, int fill) {
+        graphics.fill(x, y, x + width, y + height, PANEL_LIGHT);
+        graphics.fill(x, y, x + width - 1, y + height - 1, PANEL_DARK);
+        graphics.fill(x + 2, y + 2, x + width - 2, y + height - 2, fill);
+    }
     @Override public boolean isPauseScreen() { return false; }
 }

@@ -59,7 +59,7 @@ public final class NetworkRefillService {
         if (hasReplacement(player, original)) return false;
         StorageNetworkSavedData data = StorageNetworkSavedData.get(player.server);
         for (StorageNetwork network : data.all()) {
-            if (!network.isMember(player.getUUID()) || !inRange(player, network)) continue;
+            if (!network.isMember(player.getUUID()) || !nearNetwork(player, network)) continue;
             Extracted extracted = extract(player, network, original);
             if (extracted.stack().isEmpty()) continue;
             ItemStack remainder = extracted.stack();
@@ -69,7 +69,7 @@ public final class NetworkRefillService {
                 player.getInventory().add(remainder);
             }
             if (!remainder.isEmpty()) {
-                NetworkInventoryService.insertInto(extracted.source(), remainder);
+                NetworkInventoryService.insertInto(extracted.sourceContainers(), remainder);
             }
             player.getInventory().setChanged();
             return true;
@@ -84,12 +84,12 @@ public final class NetworkRefillService {
         return sameItemId(original, player.getOffhandItem());
     }
 
-    private static boolean inRange(ServerPlayer player, StorageNetwork network) {
-        return network.source().filter(source -> source.dimension().equals(player.serverLevel().dimension()))
-                .filter(source -> Math.abs(source.pos().getX() - player.getBlockX()) <= RANGE)
-                .filter(source -> Math.abs(source.pos().getY() - player.getBlockY()) <= RANGE)
-                .filter(source -> Math.abs(source.pos().getZ() - player.getBlockZ()) <= RANGE)
-                .isPresent();
+    private static boolean nearNetwork(ServerPlayer player, StorageNetwork network) {
+        return network.nodes().stream()
+                .filter(node -> node.dimension().equals(player.serverLevel().dimension()))
+                .anyMatch(node -> Math.abs(node.pos().getX() - player.getBlockX()) <= RANGE
+                        && Math.abs(node.pos().getY() - player.getBlockY()) <= RANGE
+                        && Math.abs(node.pos().getZ() - player.getBlockZ()) <= RANGE);
     }
 
     private static Extracted extract(ServerPlayer player, StorageNetwork network, ItemStack original) {
@@ -129,5 +129,5 @@ public final class NetworkRefillService {
     }
 
     private record PendingRefill(ItemStack original, InteractionHand hand) {}
-    private record Extracted(ItemStack stack, List<Container> source) {}
+    private record Extracted(ItemStack stack, List<Container> sourceContainers) {}
 }

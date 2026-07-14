@@ -23,7 +23,7 @@ public final class NetworkWandItem extends Item {
     public InteractionResult useOn(UseOnContext context) {
         Player player = context.getPlayer();
         if (player == null || !context.isSecondaryUseActive()
-                || !StorageResolver.eligible(context.getLevel(), context.getClickedPos())) {
+                || !StorageResolver.networkEligible(context.getLevel(), context.getClickedPos())) {
             return InteractionResult.PASS;
         }
         if (player instanceof ServerPlayer serverPlayer) {
@@ -35,11 +35,12 @@ public final class NetworkWandItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, net.minecraft.world.InteractionHand hand) {
         ItemStack wand = player.getItemInHand(hand);
-        if (!player.isShiftKeyDown()) {
-            return InteractionResultHolder.pass(wand);
-        }
         if (player instanceof ServerPlayer serverPlayer) {
-            NetworkService.openManager(serverPlayer, wand);
+            if (player.isShiftKeyDown()) {
+                NetworkService.openManager(serverPlayer, wand);
+            } else {
+                NetworkService.cycleWandMode(serverPlayer, wand);
+            }
         }
         return InteractionResultHolder.sidedSuccess(wand, level.isClientSide);
     }
@@ -49,6 +50,9 @@ public final class NetworkWandItem extends Item {
         NetworkService.selectedNetworkName(stack).ifPresentOrElse(
                 name -> tooltip.add(Component.translatable("item.mobsstorage.network_wand.selected", name)),
                 () -> tooltip.add(Component.translatable("item.mobsstorage.network_wand.unselected")));
+        tooltip.add(Component.translatable("item.mobsstorage.network_wand.mode",
+                Component.translatable(NetworkService.wandMode(stack).translationKey())));
         tooltip.add(Component.translatable("item.mobsstorage.network_wand.hint"));
+        tooltip.add(Component.translatable("item.mobsstorage.network_wand.manage_hint"));
     }
 }

@@ -1,12 +1,10 @@
 package org.destroyermob.mobsstorage.client;
 
 import java.util.List;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.core.GlobalPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
@@ -18,14 +16,21 @@ import org.destroyermob.mobsstorage.network.OpenNetworkManagerPayload;
 import org.destroyermob.mobsstorage.registry.ModItems;
 
 public final class NetworkManagerScreen extends Screen {
-    private static final int HEADER_HEIGHT = 46;
-    private static final int SIDEBAR_WIDTH = 190;
-    private static final int NETWORK_ROW_HEIGHT = 32;
-    private static final int CARD = 0xEE242B31;
-    private static final int CARD_HOVER = 0xEE303941;
-    private static final int CARD_SELECTED = 0xFF294B5C;
-    private static final int ACCENT = 0xFF71C7E8;
-    private static final int MUTED = 0xFF9BA8B0;
+    private static final int HEADER_HEIGHT = 36;
+    private static final int SIDEBAR_WIDTH = 176;
+    private static final int NETWORK_ROW_HEIGHT = 28;
+    private static final int PANEL = 0xFFC6C6C6;
+    private static final int PANEL_LIGHT = 0xFFFFFFFF;
+    private static final int PANEL_DARK = 0xFF373737;
+    private static final int SLOT = 0xFF8B8B8B;
+    private static final int SLOT_HOVER = 0xFFA0A0A0;
+    private static final int SLOT_SELECTED = 0xFFADADAD;
+    private static final int TEXT = 0xFF404040;
+    private static final int MUTED = 0xFF606060;
+    private static final int SLOT_TEXT = 0xFFFFFFFF;
+    private static final int SLOT_MUTED = 0xFFE0E0E0;
+    private static final int ACTIVE = 0xFF55AA55;
+    private static final int WARNING = 0xFFFFD070;
 
     private final List<NetworkSnapshot> networks;
     private int selectedIndex;
@@ -50,34 +55,34 @@ public final class NetworkManagerScreen extends Screen {
 
     @Override
     protected void init() {
-        int createY = panelBottom() - 32;
+        int createY = panelBottom() - 28;
         int createWidth = sidebarWidth() - 70;
-        createName = addRenderableWidget(new EditBox(font, panelLeft() + 10, createY, createWidth, 20,
+        createName = addRenderableWidget(new EditBox(font, panelLeft() + 8, createY, createWidth, 20,
                 Component.translatable("screen.mobsstorage.network.new_name")));
         createName.setMaxLength(48);
         createName.setHint(Component.translatable("screen.mobsstorage.network.new_name"));
         addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.create"), button ->
                 send(NetworkActionPayload.Action.CREATE, NetworkActionPayload.NONE,
                         NetworkActionPayload.NONE, createName.getValue()))
-                .bounds(panelLeft() + 14 + createWidth, createY, 56, 20).build());
+                .bounds(panelLeft() + 12 + createWidth, createY, 50, 20).build());
 
         NetworkSnapshot selected = selected();
         if (selected == null) return;
         int x = contentLeft();
         int contentWidth = contentWidth();
-        int top = panelTop() + HEADER_HEIGHT + 10;
-        networkName = addRenderableWidget(new EditBox(font, x, top, contentWidth - 68, 20,
+        int top = detailTop();
+        networkName = addRenderableWidget(new EditBox(font, x, top, contentWidth - 62, 20,
                 Component.translatable("screen.mobsstorage.network.name")));
         networkName.setMaxLength(48);
         networkName.setValue(selected.name());
         networkName.active = selected.owner();
         Button rename = addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.rename"), button ->
                 send(NetworkActionPayload.Action.RENAME, selected.id(), NetworkActionPayload.NONE, networkName.getValue()))
-                .bounds(x + contentWidth - 64, top, 64, 20).build());
+                .bounds(x + contentWidth - 58, top, 58, 20).build());
         rename.active = selected.owner();
 
-        int actionY = top + 26;
-        int actionWidth = Math.max(58, (contentWidth - 8) / 3);
+        int actionY = top + 24;
+        int actionWidth = (contentWidth - 8) / 3;
         String selectKey = selected.member()
                 ? selected.selected() ? "screen.mobsstorage.network.selected" : "screen.mobsstorage.network.select"
                 : "screen.mobsstorage.network.join";
@@ -97,7 +102,7 @@ public final class NetworkManagerScreen extends Screen {
                         contentWidth - (actionWidth + 4) * 2, 20).build());
         visibility.active = selected.owner();
 
-        int tabY = top + 102;
+        int tabY = top + 78;
         int tabWidth = (contentWidth - 4) / 2;
         Button storageTab = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.network.storage_tab"), button -> setPage(Page.STORAGE))
@@ -109,7 +114,7 @@ public final class NetworkManagerScreen extends Screen {
         accessTab.active = page != Page.ACCESS;
 
         if (page == Page.ACCESS && selected.owner()) {
-            int memberY = pageHeadingY() + 29;
+            int memberY = pageHeadingY() + 23;
             memberName = addRenderableWidget(new EditBox(font, x, memberY, contentWidth - 64, 20,
                     Component.translatable("screen.mobsstorage.network.member_name")));
             memberName.setMaxLength(32);
@@ -119,7 +124,7 @@ public final class NetworkManagerScreen extends Screen {
                     .bounds(x + contentWidth - 60, memberY, 60, 20).build());
         }
 
-        int bottomY = panelBottom() - 32;
+        int bottomY = panelBottom() - 28;
         if (selected.owner()) {
             addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.delete"), button ->
                     send(NetworkActionPayload.Action.DELETE, selected.id(), NetworkActionPayload.NONE, ""))
@@ -133,26 +138,30 @@ public final class NetworkManagerScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderTransparentBackground(graphics);
         drawPanel(graphics, mouseX, mouseY);
         super.render(graphics, mouseX, mouseY, partialTick);
         drawForeground(graphics, mouseX, mouseY);
     }
 
+    /** Prevent Screen.render() from invoking Minecraft's post-process blur after the panel is drawn. */
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    }
+
     private void drawPanel(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.fill(panelLeft() - 3, panelTop() - 3, panelRight() + 3, panelBottom() + 3, 0x80000000);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelBottom(), 0xF0191E22);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelTop() + HEADER_HEIGHT, 0xFF20272C);
-        graphics.fill(panelLeft(), panelTop() + HEADER_HEIGHT, panelLeft() + sidebarWidth(), panelBottom(), 0xFF14191D);
-        graphics.fill(panelLeft() + sidebarWidth(), panelTop() + HEADER_HEIGHT,
-                panelLeft() + sidebarWidth() + 1, panelBottom(), 0xFF394249);
-        graphics.fill(panelLeft(), panelTop(), panelRight(), panelTop() + 2, ACCENT);
+        drawRaisedPanel(graphics, panelLeft(), panelTop(), panelWidth(), panelHeight());
+        int dividerX = panelLeft() + sidebarWidth();
+        graphics.fill(panelLeft() + 3, panelTop() + HEADER_HEIGHT - 1,
+                panelRight() - 3, panelTop() + HEADER_HEIGHT, PANEL_DARK);
+        graphics.fill(panelLeft() + 3, panelTop() + HEADER_HEIGHT,
+                panelRight() - 3, panelTop() + HEADER_HEIGHT + 1, PANEL_LIGHT);
+        graphics.fill(dividerX - 1, panelTop() + HEADER_HEIGHT, dividerX, panelBottom() - 3, PANEL_DARK);
+        graphics.fill(dividerX, panelTop() + HEADER_HEIGHT, dividerX + 1, panelBottom() - 3, PANEL_LIGHT);
         drawNetworkCards(graphics, mouseX, mouseY);
         NetworkSnapshot selected = selected();
         if (selected != null) {
-            int statusY = panelTop() + HEADER_HEIGHT + 66;
-            graphics.fill(contentLeft(), statusY, panelRight() - 10, statusY + 30, 0xCC20282D);
-            graphics.renderOutline(contentLeft(), statusY, contentWidth(), 30, 0xFF3C4A52);
+            drawInset(graphics, contentLeft(), statusY(), contentWidth(), 26, SLOT);
             if (page == Page.STORAGE) drawStorageCards(graphics, selected, mouseX, mouseY);
             else drawMemberCards(graphics, selected, mouseX, mouseY);
         }
@@ -160,25 +169,27 @@ public final class NetworkManagerScreen extends Screen {
 
     private void drawForeground(GuiGraphics graphics, int mouseX, int mouseY) {
         Item wand = ModItems.NETWORK_WAND.get();
-        graphics.renderFakeItem(wand.getDefaultInstance(), panelLeft() + 12, panelTop() + 14);
-        graphics.drawString(font, title, panelLeft() + 36, panelTop() + 12, 0xFFFFFFFF, false);
+        graphics.renderFakeItem(wand.getDefaultInstance(), panelLeft() + 10, panelTop() + 10);
+        graphics.drawString(font, title, panelLeft() + 34, panelTop() + 8, TEXT, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.network.subtitle"),
-                panelLeft() + 36, panelTop() + 25, MUTED, false);
+                panelLeft() + 34, panelTop() + 20, MUTED, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.network.available"),
-                panelLeft() + 10, panelTop() + HEADER_HEIGHT + 10, 0xFFDCE6EA, false);
+                panelLeft() + 8, panelTop() + HEADER_HEIGHT + 7, TEXT, false);
         if (networks.isEmpty()) {
             graphics.drawWordWrap(font, Component.translatable("screen.mobsstorage.network.empty"),
-                    panelLeft() + 10, panelTop() + HEADER_HEIGHT + 32, sidebarWidth() - 20, MUTED);
+                    panelLeft() + 8, panelTop() + HEADER_HEIGHT + 22, sidebarWidth() - 16, MUTED);
             return;
         }
         drawNetworkText(graphics);
         NetworkSnapshot selected = selected();
         if (selected == null) return;
-        int statusY = panelTop() + HEADER_HEIGHT + 66;
         String owner = Component.translatable("screen.mobsstorage.network.owner", selected.ownerName()).getString();
-        graphics.drawString(font, owner, contentLeft() + 8, statusY + 6, 0xFFE3EBEF, false);
-        graphics.drawString(font, refillStatus(selected), contentLeft() + 8, statusY + 17,
-                refillReady(selected) ? 0xFF76D69A : 0xFFE6B866, false);
+        graphics.drawString(font, owner, contentLeft() + 6, statusY() + 5, SLOT_TEXT, false);
+        NetworkSnapshot.Node origin = origin(selected);
+        graphics.drawString(font, origin == null
+                        ? Component.translatable("screen.mobsstorage.network.origin_unset")
+                        : Component.translatable("screen.mobsstorage.network.origin", origin.name()),
+                contentLeft() + 6, statusY() + 15, origin == null ? WARNING : ACTIVE, false);
         if (page == Page.STORAGE) drawStorageText(graphics, selected);
         else drawMemberText(graphics, selected);
     }
@@ -190,12 +201,13 @@ public final class NetworkManagerScreen extends Screen {
             int index = networkOffset + visible;
             if (index >= networks.size()) break;
             int rowY = y + visible * NETWORK_ROW_HEIGHT;
-            boolean hovered = inside(mouseX, mouseY, panelLeft() + 8, rowY, sidebarWidth() - 16, NETWORK_ROW_HEIGHT - 4);
-            int color = index == selectedIndex ? CARD_SELECTED : hovered ? CARD_HOVER : CARD;
-            graphics.fill(panelLeft() + 8, rowY, panelLeft() + sidebarWidth() - 8,
-                    rowY + NETWORK_ROW_HEIGHT - 4, color);
+            boolean hovered = inside(mouseX, mouseY, panelLeft() + 8, rowY,
+                    sidebarWidth() - 16, NETWORK_ROW_HEIGHT - 3);
+            int color = index == selectedIndex ? SLOT_SELECTED : hovered ? SLOT_HOVER : SLOT;
+            drawInset(graphics, panelLeft() + 8, rowY, sidebarWidth() - 16, NETWORK_ROW_HEIGHT - 3, color);
             if (networks.get(index).selected()) {
-                graphics.fill(panelLeft() + 8, rowY, panelLeft() + 11, rowY + NETWORK_ROW_HEIGHT - 4, ACCENT);
+                graphics.fill(panelLeft() + 10, rowY + 2, panelLeft() + 13,
+                        rowY + NETWORK_ROW_HEIGHT - 5, ACTIVE);
             }
         }
     }
@@ -207,13 +219,13 @@ public final class NetworkManagerScreen extends Screen {
             NetworkSnapshot network = networks.get(index);
             int y = networkListTop() + visible * NETWORK_ROW_HEIGHT;
             graphics.drawString(font, font.plainSubstrByWidth(network.name(), sidebarWidth() - 30),
-                    panelLeft() + 15, y + 5, 0xFFF4F7F8, false);
+                    panelLeft() + 15, y + 4, SLOT_TEXT, false);
             Component role = Component.translatable(network.owner()
                     ? "screen.mobsstorage.network.role_owner"
                     : network.member() ? "screen.mobsstorage.network.role_member"
                     : "screen.mobsstorage.network.role_public");
-            graphics.drawString(font, role, panelLeft() + 15, y + 17,
-                    network.selected() ? ACCENT : MUTED, false);
+            graphics.drawString(font, role, panelLeft() + 15, y + 14,
+                    network.selected() ? ACTIVE : SLOT_MUTED, false);
         }
     }
 
@@ -224,18 +236,18 @@ public final class NetworkManagerScreen extends Screen {
             if (index >= selected.nodes().size()) break;
             int y = listY + visible * 27;
             boolean hovered = inside(mouseX, mouseY, contentLeft(), y, contentWidth(), 23);
-            graphics.fill(contentLeft(), y, panelRight() - 10, y + 23, hovered ? CARD_HOVER : CARD);
-            if (selected.nodes().get(index).source()) {
-                graphics.fill(contentLeft(), y, contentLeft() + 3, y + 23, 0xFF76D69A);
+            drawInset(graphics, contentLeft(), y, contentWidth(), 23, hovered ? SLOT_HOVER : SLOT);
+            if (selected.nodes().get(index).origin()) {
+                graphics.fill(contentLeft() + 2, y + 2, contentLeft() + 5, y + 21, ACTIVE);
             }
         }
     }
 
     private void drawStorageText(GuiGraphics graphics, NetworkSnapshot selected) {
         graphics.drawString(font, Component.translatable("screen.mobsstorage.network.storage_heading"),
-                contentLeft(), pageHeadingY(), 0xFFDCE6EA, false);
+                contentLeft(), pageHeadingY(), TEXT, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.network.storage_hint"),
-                contentLeft(), pageHeadingY() + 12, MUTED, false);
+                    contentLeft(), pageHeadingY() + 11, MUTED, false);
         if (selected.nodes().isEmpty()) {
             graphics.drawWordWrap(font, Component.translatable("screen.mobsstorage.network.no_storages"),
                     contentLeft(), pageListTop() + 4, contentWidth(), MUTED);
@@ -250,13 +262,13 @@ public final class NetworkManagerScreen extends Screen {
             if (icon != Items.AIR) graphics.renderFakeItem(icon.getDefaultInstance(), contentLeft() + 5, y + 3);
             int textX = contentLeft() + 27;
             graphics.drawString(font, font.plainSubstrByWidth(node.name(), contentWidth() - 116),
-                    textX, y + 4, 0xFFF1F4F5, false);
+                    textX, y + 3, SLOT_TEXT, false);
             String priority = Component.translatable("screen.mobsstorage.network.priority_short", node.priority()).getString();
-            graphics.drawString(font, priority, panelRight() - 16 - font.width(priority), y + 8, MUTED, false);
-            String details = node.source()
-                    ? Component.translatable("screen.mobsstorage.network.source_badge").getString()
+            graphics.drawString(font, priority, panelRight() - 16 - font.width(priority), y + 7, SLOT_MUTED, false);
+            String details = node.origin()
+                    ? Component.translatable("screen.mobsstorage.network.origin_badge").getString()
                     : node.pos().pos().getX() + ", " + node.pos().pos().getY() + ", " + node.pos().pos().getZ();
-            graphics.drawString(font, details, textX, y + 14, node.source() ? 0xFF76D69A : MUTED, false);
+            graphics.drawString(font, details, textX, y + 13, node.origin() ? ACTIVE : SLOT_MUTED, false);
         }
     }
 
@@ -266,21 +278,20 @@ public final class NetworkManagerScreen extends Screen {
             int index = memberOffset + visible;
             if (index >= selected.members().size()) break;
             int y = listY + visible * 24;
-            graphics.fill(contentLeft(), y, panelRight() - 10, y + 20, CARD);
+            drawInset(graphics, contentLeft(), y, contentWidth(), 20, SLOT);
             if (selected.owner()) {
                 boolean hovered = inside(mouseX, mouseY, panelRight() - 32, y, 22, 20);
-                graphics.fill(panelRight() - 32, y, panelRight() - 10, y + 20,
-                        hovered ? 0xFF8F4141 : 0xFF593333);
+                drawRaisedControl(graphics, panelRight() - 30, y + 2, 18, 16, hovered);
             }
         }
     }
 
     private void drawMemberText(GuiGraphics graphics, NetworkSnapshot selected) {
         graphics.drawString(font, Component.translatable("screen.mobsstorage.network.access_heading"),
-                contentLeft(), pageHeadingY(), 0xFFDCE6EA, false);
+                contentLeft(), pageHeadingY(), TEXT, false);
         graphics.drawString(font, Component.translatable(selected.publicAccess()
                         ? "screen.mobsstorage.network.public_hint" : "screen.mobsstorage.network.private_hint"),
-                contentLeft(), pageHeadingY() + 12, MUTED, false);
+                contentLeft(), pageHeadingY() + 11, MUTED, false);
         int startY = pageListTop();
         if (selected.members().isEmpty()) {
             graphics.drawString(font, Component.translatable("screen.mobsstorage.network.no_members"),
@@ -292,37 +303,13 @@ public final class NetworkManagerScreen extends Screen {
             if (index >= selected.members().size()) break;
             int y = pageListTop() + visible * 24;
             NetworkSnapshot.Member member = selected.members().get(index);
-            graphics.drawString(font, member.name(), contentLeft() + 7, y + 6, 0xFFF1F4F5, false);
-            if (selected.owner()) graphics.drawCenteredString(font, "x", panelRight() - 21, y + 6, 0xFFFFFFFF);
+            graphics.drawString(font, member.name(), contentLeft() + 7, y + 6, SLOT_TEXT, false);
+            if (selected.owner()) graphics.drawCenteredString(font, "x", panelRight() - 21, y + 6, 0xFF8B0000);
         }
     }
 
-    private Component refillStatus(NetworkSnapshot selected) {
-        NetworkSnapshot.Node source = selected.nodes().stream().filter(NetworkSnapshot.Node::source).findFirst().orElse(null);
-        if (source == null) return Component.translatable("screen.mobsstorage.network.refill_no_source");
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.level == null
-                || !source.pos().dimension().equals(minecraft.level.dimension())) {
-            return Component.translatable("screen.mobsstorage.network.refill_other_dimension");
-        }
-        int dx = Math.abs(source.pos().pos().getX() - minecraft.player.getBlockX());
-        int dy = Math.abs(source.pos().pos().getY() - minecraft.player.getBlockY());
-        int dz = Math.abs(source.pos().pos().getZ() - minecraft.player.getBlockZ());
-        int distance = Math.max(dx, Math.max(dy, dz));
-        return distance <= 256
-                ? Component.translatable("screen.mobsstorage.network.refill_ready", distance)
-                : Component.translatable("screen.mobsstorage.network.refill_out_of_range", distance);
-    }
-
-    private boolean refillReady(NetworkSnapshot selected) {
-        NetworkSnapshot.Node source = selected.nodes().stream().filter(NetworkSnapshot.Node::source).findFirst().orElse(null);
-        Minecraft minecraft = Minecraft.getInstance();
-        if (source == null || minecraft.player == null || minecraft.level == null
-                || !source.pos().dimension().equals(minecraft.level.dimension())) return false;
-        GlobalPos pos = source.pos();
-        return Math.abs(pos.pos().getX() - minecraft.player.getBlockX()) <= 256
-                && Math.abs(pos.pos().getY() - minecraft.player.getBlockY()) <= 256
-                && Math.abs(pos.pos().getZ() - minecraft.player.getBlockZ()) <= 256;
+    private NetworkSnapshot.Node origin(NetworkSnapshot selected) {
+        return selected.nodes().stream().filter(NetworkSnapshot.Node::origin).findFirst().orElse(null);
     }
 
     @Override
@@ -391,27 +378,45 @@ public final class NetworkManagerScreen extends Screen {
         return networks.isEmpty() ? -1 : 0;
     }
 
-    private int panelWidth() { return Math.min(620, width - 20); }
-    private int panelHeight() { return Math.min(410, height - 20); }
+    private int panelWidth() { return Math.min(580, width - 16); }
+    private int panelHeight() { return Math.min(330, height - 16); }
     private int panelLeft() { return (width - panelWidth()) / 2; }
     private int panelTop() { return (height - panelHeight()) / 2; }
     private int panelRight() { return panelLeft() + panelWidth(); }
     private int panelBottom() { return panelTop() + panelHeight(); }
-    private int sidebarWidth() { return Math.min(SIDEBAR_WIDTH, Math.max(112, panelWidth() / 3)); }
-    private int contentLeft() { return panelLeft() + sidebarWidth() + 12; }
-    private int contentWidth() { return panelRight() - contentLeft() - 10; }
-    private int networkListTop() { return panelTop() + HEADER_HEIGHT + 24; }
+    private int sidebarWidth() { return Math.min(SIDEBAR_WIDTH, Math.max(104, panelWidth() / 3)); }
+    private int contentLeft() { return panelLeft() + sidebarWidth() + 10; }
+    private int contentWidth() { return panelRight() - contentLeft() - 8; }
+    private int detailTop() { return panelTop() + HEADER_HEIGHT + 8; }
+    private int statusY() { return detailTop() + 48; }
+    private int networkListTop() { return panelTop() + HEADER_HEIGHT + 21; }
     private int visibleNetworkRows() {
-        return Math.max(1, (panelBottom() - 44 - networkListTop()) / NETWORK_ROW_HEIGHT);
+        return Math.max(0, (panelBottom() - 34 - networkListTop()) / NETWORK_ROW_HEIGHT);
     }
-    private int pageHeadingY() { return panelTop() + HEADER_HEIGHT + 134; }
+    private int pageHeadingY() { return detailTop() + 104; }
     private int pageListTop() {
-        int base = pageHeadingY() + 29;
-        return page == Page.ACCESS && selected() != null && selected().owner() ? base + 28 : base;
+        int base = pageHeadingY() + 24;
+        return page == Page.ACCESS && selected() != null && selected().owner() ? base + 24 : base;
     }
     private int visiblePageRows() {
         int row = page == Page.STORAGE ? 27 : 24;
-        return Math.max(1, (panelBottom() - 42 - pageListTop()) / row);
+        return Math.max(0, (panelBottom() - 34 - pageListTop()) / row);
+    }
+    private static void drawRaisedPanel(GuiGraphics graphics, int x, int y, int width, int height) {
+        graphics.fill(x, y, x + width, y + height, PANEL);
+        graphics.fill(x, y, x + width, y + 2, PANEL_LIGHT);
+        graphics.fill(x, y, x + 2, y + height, PANEL_LIGHT);
+        graphics.fill(x, y + height - 2, x + width, y + height, PANEL_DARK);
+        graphics.fill(x + width - 2, y, x + width, y + height, PANEL_DARK);
+    }
+    private static void drawRaisedControl(GuiGraphics graphics, int x, int y, int width, int height, boolean hovered) {
+        drawRaisedPanel(graphics, x, y, width, height);
+        graphics.fill(x + 2, y + 2, x + width - 2, y + height - 2, hovered ? 0xFFD6D6D6 : PANEL);
+    }
+    private static void drawInset(GuiGraphics graphics, int x, int y, int width, int height, int fill) {
+        graphics.fill(x, y, x + width, y + height, PANEL_LIGHT);
+        graphics.fill(x, y, x + width - 1, y + height - 1, PANEL_DARK);
+        graphics.fill(x + 2, y + 2, x + width - 2, y + height - 2, fill);
     }
     private static boolean inside(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;

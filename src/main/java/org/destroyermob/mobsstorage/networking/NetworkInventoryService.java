@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import net.minecraft.core.GlobalPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.CompoundContainer;
@@ -80,23 +81,93 @@ public final class NetworkInventoryService {
         Optional<NetworkNodeData> currentNode = NetworkService.nodeFor(current);
         Optional<StorageNetwork> networkValue = NetworkService.accessibleNetwork(player, current);
         if (currentNode.isEmpty() || networkValue.isEmpty() || offered.isEmpty()) return new InsertResult(0, offered);
-        StorageNetwork network = networkValue.get();
         GlobalPos currentPos = globalPos(player, current, currentNode.get());
-        List<Target> targets = loadedTargets(player, network, offered, currentPos);
-        int original = offered.getCount();
-        for (Target target : targets) {
-            insertInto(target.containers(), offered);
-            if (offered.isEmpty()) break;
+        return insert(player.server, networkValue.get(), offered, currentPos, false);
+    }
+
+    public static Optional<InsertResult> insertAutomated(Container current, ItemStack offered, boolean simulate) {
+        return automationContext(current).map(context ->
+                insert(context.level().getServer(), context.network(), offered, context.current(), simulate));
+    }
+
+    public static Optional<Boolean> acceptsAutomated(Container current, ItemStack stack) {
+        return automationContext(current).map(context -> loadedTargets(
+                        context.level().getServer(), context.network(), stack, context.current()).stream()
+                .flatMap(target -> target.containers().stream())
+                .anyMatch(container -> canEverPlace(container, stack)));
+    }
+
+    public static List<ItemStack> networkContents(Container endpoint) {
+        return automatedSlots(endpoint).orElse(List.of()).stream()
+                .map(StorageSlot::stack)
+                .filter(stack -> !stack.isEmpty())
+                .map(ItemStack::copy)
+                .toList();
+    }
+
+    public static ItemStack extractMatching(
+            Container endpoint, ItemStack template, int amount, boolean simulate
+    ) {
+        if (template.isEmpty() || amount <= 0) return ItemStack.EMPTY;
+        int moved = 0;
+        for (StorageSlot slot : automatedSlots(endpoint).orElse(List.of())) {
+            ItemStack stored = slot.stack();
+            if (!stored.isEmpty() && ItemStack.isSameItemSameComponents(stored, template)) {
+                int take = Math.min(amount - moved, stored.getCount());
+                if (!simulate) slot.container().removeItem(slot.slot(), take);
+                moved += take;
+                if (moved >= amount) break;
+            }
         }
-        return new InsertResult(original - offered.getCount(), offered);
+        return moved == 0 ? ItemStack.EMPTY : template.copyWithCount(moved);
+    }
+
+    static Optional<List<StorageSlot>> automatedSlots(Container endpoint) {
+        return automationContext(endpoint).map(NetworkInventoryService::loadedStorageSlots);
+    }
+
+    private static List<StorageSlot> loadedStorageSlots(AutomationContext context) {
+        List<StorageSlot> result = new ArrayList<>();
+        List<GlobalPos> nodes = context.network().nodes().stream()
+                .sorted(Comparator.comparingInt((GlobalPos pos) -> context.network().nodeInfo(pos).priority())
+                        .reversed().thenComparing(GlobalPos::toString))
+                .toList();
+        for (GlobalPos nodePos : nodes) {
+            ServerLevel level = context.level().getServer().getLevel(nodePos.dimension());
+            if (level == null || !level.isLoaded(nodePos.pos())) continue;
+            Optional<NetworkNodeData> node = NetworkService.findNode(level, nodePos.pos())
+                    .filter(value -> value.networkId().equals(context.network().id()));
+            if (node.isEmpty()) continue;
+            for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.get().anchor())) {
+                if (!(blockEntity instanceof Container container)) continue;
+                for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                    result.add(new StorageSlot(container, slot));
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static InsertResult insert(
+            MinecraftServer server, StorageNetwork network, ItemStack offered, GlobalPos current, boolean simulate
+    ) {
+        ItemStack remainder = offered.copy();
+        List<Target> targets = loadedTargets(server, network, remainder, current);
+        int original = remainder.getCount();
+        for (Target target : targets) {
+            if (simulate) simulateInsertInto(target.containers(), remainder);
+            else insertInto(target.containers(), remainder);
+            if (remainder.isEmpty()) break;
+        }
+        return new InsertResult(original - remainder.getCount(), remainder);
     }
 
     static List<Target> loadedTargets(
-            ServerPlayer player, StorageNetwork network, ItemStack stack, GlobalPos current
+            MinecraftServer server, StorageNetwork network, ItemStack stack, GlobalPos current
     ) {
         List<Target> targets = new ArrayList<>();
         for (GlobalPos nodePos : network.nodes()) {
-            ServerLevel level = player.server.getLevel(nodePos.dimension());
+            ServerLevel level = server.getLevel(nodePos.dimension());
             if (level == null || !level.isLoaded(nodePos.pos())) continue;
             Optional<NetworkNodeData> node = NetworkService.findNode(level, nodePos.pos())
                     .filter(value -> value.networkId().equals(network.id()));
@@ -108,13 +179,52 @@ public final class NetworkInventoryService {
             Optional<LabelData> label = StorageResolver.findLabel(level, node.get().anchor());
             if (label.isPresent() && !label.get().allows(stack, level)) continue;
             boolean explicitFilter = label.filter(value -> !value.filters().isEmpty()).isPresent();
-            int tier = nodePos.equals(current) ? 0 : explicitFilter ? 1 : 2;
+            int tier = explicitFilter ? 0 : nodePos.equals(current) ? 1 : 2;
             targets.add(new Target(nodePos, containers, node.get().priority(), tier));
         }
         targets.sort(Comparator.comparingInt(Target::tier)
                 .thenComparing(Comparator.comparingInt(Target::priority).reversed())
                 .thenComparing(target -> target.pos().toString()));
         return targets;
+    }
+
+    private static Optional<AutomationContext> automationContext(Container current) {
+        Optional<NetworkNodeData> node = NetworkService.nodeFor(current);
+        BlockEntity blockEntity = firstBlockEntity(current);
+        if (node.isEmpty() || blockEntity == null || !(blockEntity.getLevel() instanceof ServerLevel level)) {
+            return Optional.empty();
+        }
+        return StorageNetworkSavedData.get(level.getServer()).get(node.get().networkId())
+                .map(network -> new AutomationContext(level, network,
+                        GlobalPos.of(level.dimension(), node.get().anchor())));
+    }
+
+    private static boolean canEverPlace(Container container, ItemStack stack) {
+        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+            if (container.canPlaceItem(slot, stack)) return true;
+        }
+        return false;
+    }
+
+    private static void simulateInsertInto(List<Container> containers, ItemStack stack) {
+        for (Container container : containers) {
+            for (int slot = 0; slot < container.getContainerSize() && !stack.isEmpty(); slot++) {
+                ItemStack existing = container.getItem(slot);
+                if (!existing.isEmpty() && ItemStack.isSameItemSameComponents(existing, stack)
+                        && container.canPlaceItem(slot, stack)) {
+                    int capacity = Math.min(container.getMaxStackSize(), existing.getMaxStackSize()) - existing.getCount();
+                    stack.shrink(Math.min(capacity, stack.getCount()));
+                }
+            }
+        }
+        for (Container container : containers) {
+            for (int slot = 0; slot < container.getContainerSize() && !stack.isEmpty(); slot++) {
+                if (container.getItem(slot).isEmpty() && container.canPlaceItem(slot, stack)) {
+                    int capacity = Math.min(container.getMaxStackSize(), stack.getMaxStackSize());
+                    stack.shrink(Math.min(capacity, stack.getCount()));
+                }
+            }
+        }
     }
 
     static void insertInto(List<Container> containers, ItemStack stack) {
@@ -158,5 +268,11 @@ public final class NetworkInventoryService {
     }
 
     public record InsertResult(int inserted, ItemStack remainder) {}
+    record StorageSlot(Container container, int slot) {
+        ItemStack stack() {
+            return container.getItem(slot);
+        }
+    }
+    private record AutomationContext(ServerLevel level, StorageNetwork network, GlobalPos current) {}
     record Target(GlobalPos pos, List<Container> containers, int priority, int tier) {}
 }

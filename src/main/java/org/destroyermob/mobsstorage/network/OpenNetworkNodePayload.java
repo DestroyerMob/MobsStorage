@@ -9,7 +9,7 @@ import org.destroyermob.mobsstorage.MobsStorage;
 
 public record OpenNetworkNodePayload(
         BlockPos pos, UUID networkId, String networkName, String storageName,
-        int priority, boolean source, boolean canManage
+        int priority, boolean origin, boolean canManage
 ) implements CustomPacketPayload {
     public static final Type<OpenNetworkNodePayload> TYPE = new Type<>(MobsStorage.id("open_network_node"));
     public static final StreamCodec<RegistryFriendlyByteBuf, OpenNetworkNodePayload> STREAM_CODEC =
@@ -21,7 +21,7 @@ public record OpenNetworkNodePayload(
         buffer.writeUtf(networkName, 48);
         buffer.writeUtf(storageName, 48);
         buffer.writeInt(priority);
-        buffer.writeBoolean(source);
+        buffer.writeBoolean(origin);
         buffer.writeBoolean(canManage);
     }
 

@@ -86,15 +86,17 @@ public final class StorageLabelEvents {
     }
 
     public static void onBlockPlaced(BlockEvent.EntityPlaceEvent event) {
-        if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level) || !event.getPlacedBlock().is(org.destroyermob.mobsstorage.registry.ModTags.LABELABLE_STORAGE)) {
+        if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
         BlockPos pos = event.getPos();
         level.getServer().execute(() -> {
-            List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
-            storage.stream().map(StorageResolver::existingLabel).flatMap(Optional::stream).findFirst()
-                    .ifPresent(label -> StorageResolver.setLabel(level, storage, label));
-            NetworkService.onStorageJoined(level, pos);
+            if (StorageResolver.eligible(level, pos)) {
+                List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
+                storage.stream().map(StorageResolver::existingLabel).flatMap(Optional::stream).findFirst()
+                        .ifPresent(label -> StorageResolver.setLabel(level, storage, label));
+            }
+            if (StorageResolver.networkEligible(level, pos)) NetworkService.onStorageJoined(level, pos);
         });
     }
 

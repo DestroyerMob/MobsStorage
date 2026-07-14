@@ -1,7 +1,6 @@
 package org.destroyermob.mobsstorage.networking;
 
 import com.mojang.authlib.GameProfile;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -9,12 +8,15 @@ import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.Container;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
@@ -23,19 +25,23 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.destroyermob.mobsstorage.mixin.CompoundContainerAccessor;
+import org.destroyermob.mobsstorage.item.NetworkWandMode;
 import org.destroyermob.mobsstorage.network.NetworkActionPayload;
 import org.destroyermob.mobsstorage.network.NetworkSnapshot;
 import org.destroyermob.mobsstorage.network.OpenNetworkManagerPayload;
 import org.destroyermob.mobsstorage.network.OpenNetworkNodePayload;
 import org.destroyermob.mobsstorage.network.SaveNetworkNodePayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
+import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
+import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
 
 public final class NetworkService {
     private static final String SELECTED_NETWORK = "MobsStorageSelectedNetwork";
     private static final String SELECTED_NETWORK_NAME = "MobsStorageSelectedNetworkName";
+    private static final String WAND_MODE = "MobsStorageWandMode";
     private static final double MAX_INTERACTION_DISTANCE_SQUARED = 64.0D;
 
     private NetworkService() {
@@ -84,7 +90,7 @@ public final class NetworkService {
 
     public static void useWandOnStorage(ServerPlayer player, BlockPos pos, ItemStack wand) {
         ServerLevel level = player.serverLevel();
-        if (!StorageResolver.eligible(level, pos)) {
+        if (!StorageResolver.networkEligible(level, pos)) {
             return;
         }
         BlockEntity blockEntity = level.getBlockEntity(pos);
@@ -95,27 +101,19 @@ public final class NetworkService {
         StorageNetworkSavedData data = StorageNetworkSavedData.get(player.server);
         if (linked.isPresent()) {
             Optional<StorageNetwork> linkedNetwork = data.get(linked.get().networkId());
-            if (linkedNetwork.isPresent()) {
-                linkedNetwork.filter(network -> network.isMember(player.getUUID()))
-                        .ifPresent(network -> openNode(player, pos, linked.get(), network));
-                return;
+            if (linkedNetwork.isEmpty()) {
+                NetworkNodeData stale = linked.get();
+                setNodeData(level, StorageResolver.logicalStorage(level, pos), new NetworkNodeData(
+                        NetworkNodeData.NO_NETWORK, stale.name(), stale.priority(), stale.anchor()));
+                linked = Optional.empty();
             }
-            NetworkNodeData stale = linked.get();
-            setNodeData(level, StorageResolver.logicalStorage(level, pos), new NetworkNodeData(
-                    NetworkNodeData.NO_NETWORK, stale.name(), stale.priority(), stale.anchor()));
         }
-        Optional<UUID> selected = selectedNetwork(wand);
-        if (selected.isEmpty()) {
-            openManager(player, wand);
-            return;
+
+        switch (wandMode(wand)) {
+            case ADD_STORAGE -> addStorage(player, pos, wand, data, linked);
+            case SET_ORIGIN -> setOrigin(player, pos, wand, data, linked);
+            case CONFIGURE_STORAGE -> configureStorage(player, pos, data, linked);
         }
-        Optional<StorageNetwork> network = data.get(selected.get()).filter(value -> value.isOwner(player.getUUID()));
-        if (network.isEmpty()) {
-            clearSelection(wand);
-            openManager(player, wand);
-            return;
-        }
-        link(player, pos, network.get());
     }
 
     public static void openManager(ServerPlayer player, ItemStack wand) {
@@ -179,7 +177,7 @@ public final class NetworkService {
 
     public static void saveNode(ServerPlayer player, SaveNetworkNodePayload payload) {
         ServerLevel level = player.serverLevel();
-        if (!level.isLoaded(payload.pos()) || !StorageResolver.eligible(level, payload.pos())
+        if (!level.isLoaded(payload.pos()) || !StorageResolver.networkEligible(level, payload.pos())
                 || player.distanceToSqr(Vec3.atCenterOf(payload.pos())) > MAX_INTERACTION_DISTANCE_SQUARED) return;
         Optional<NetworkNodeData> node = findNode(level, payload.pos());
         if (node.isEmpty()) return;
@@ -188,15 +186,12 @@ public final class NetworkService {
                 .filter(network -> network.isOwner(player.getUUID()));
         if (networkValue.isEmpty()) return;
         StorageNetwork network = networkValue.get();
-        GlobalPos global = GlobalPos.of(level.dimension(), node.get().anchor());
         if (payload.unlink()) {
             unlink(level, node.get(), network);
             return;
         }
-        ResourceLocation icon = StorageResolver.findLabel(level, payload.pos()).map(LabelData::icon).orElse(LabelData.AIR);
+        ResourceLocation icon = nodeIcon(level, payload.pos());
         updateDetails(level, payload.pos(), payload.name(), payload.priority(), icon);
-        if (payload.source()) network.setSource(global);
-        else if (network.source().filter(global::equals).isPresent()) network.setSource(null);
         data.changed();
         findNode(level, payload.pos()).ifPresent(updated -> openNode(player, payload.pos(), updated, network));
     }
@@ -222,20 +217,128 @@ public final class NetworkService {
                 .filter(network -> network.isMember(player.getUUID()));
     }
 
-    private static void link(ServerPlayer player, BlockPos pos, StorageNetwork network) {
+    private static void addStorage(
+            ServerPlayer player,
+            BlockPos pos,
+            ItemStack wand,
+            StorageNetworkSavedData data,
+            Optional<NetworkNodeData> linked
+    ) {
+        Optional<StorageNetwork> selected = selectedOwnedNetwork(player, wand, data);
+        if (selected.isEmpty()) return;
+        if (linked.isPresent()) {
+            data.get(linked.get().networkId()).ifPresentOrElse(
+                    network -> message(player, network.id().equals(selected.get().id())
+                            ? "item.mobsstorage.network_wand.already_linked"
+                            : "item.mobsstorage.network_wand.linked_elsewhere", network.name()),
+                    () -> message(player, "item.mobsstorage.network_wand.not_linked"));
+            return;
+        }
+        if (link(player, pos, selected.get())) {
+            message(player, "item.mobsstorage.network_wand.storage_added", selected.get().name());
+        }
+    }
+
+    public static void openTerminal(ServerPlayer player, BlockPos pos) {
+        ServerLevel level = player.serverLevel();
+        if (!level.isLoaded(pos) || !(level.getBlockEntity(pos) instanceof NetworkInterfaceBlockEntity terminal)) return;
+        Optional<NetworkNodeData> node = findNode(level, pos);
+        if (node.isEmpty()) {
+            message(player, "block.mobsstorage.network_interface.not_linked");
+            return;
+        }
+        Optional<StorageNetwork> network = StorageNetworkSavedData.get(player.server).get(node.get().networkId());
+        if (network.isEmpty() || !network.get().isMember(player.getUUID())) {
+            message(player, "block.mobsstorage.network_interface.no_access");
+            return;
+        }
+        GlobalPos terminalPos = GlobalPos.of(level.dimension(), node.get().anchor());
+        if (network.get().origin().filter(terminalPos::equals).isEmpty()) {
+            message(player, "block.mobsstorage.network_interface.not_origin");
+            return;
+        }
+        player.openMenu(terminal, pos);
+    }
+
+    public static boolean canUseTerminal(Player player, NetworkInterfaceBlockEntity terminal) {
+        if (!(player instanceof ServerPlayer serverPlayer) || terminal.getLevel() != serverPlayer.level()
+                || !terminal.stillValid(player)) return false;
+        Optional<NetworkNodeData> node = existingNode(terminal);
+        if (node.isEmpty()) return false;
+        Optional<StorageNetwork> network = StorageNetworkSavedData.get(serverPlayer.server).get(node.get().networkId())
+                .filter(value -> value.isMember(player.getUUID()));
+        GlobalPos pos = GlobalPos.of(serverPlayer.serverLevel().dimension(), node.get().anchor());
+        return network.flatMap(StorageNetwork::origin).filter(pos::equals).isPresent();
+    }
+
+    private static void setOrigin(
+            ServerPlayer player,
+            BlockPos pos,
+            ItemStack wand,
+            StorageNetworkSavedData data,
+            Optional<NetworkNodeData> linked
+    ) {
+        Optional<StorageNetwork> selected = selectedOwnedNetwork(player, wand, data);
+        if (selected.isEmpty()) return;
+        if (linked.isEmpty() || !linked.get().networkId().equals(selected.get().id())) {
+            message(player, "item.mobsstorage.network_wand.origin_requires_link", selected.get().name());
+            return;
+        }
+        GlobalPos origin = GlobalPos.of(player.serverLevel().dimension(), linked.get().anchor());
+        selected.get().setOrigin(origin);
+        data.changed();
+        message(player, "item.mobsstorage.network_wand.origin_set", selected.get().name(),
+                origin.pos().getX(), origin.pos().getY(), origin.pos().getZ());
+    }
+
+    private static void configureStorage(
+            ServerPlayer player,
+            BlockPos pos,
+            StorageNetworkSavedData data,
+            Optional<NetworkNodeData> linked
+    ) {
+        if (linked.isEmpty()) {
+            message(player, "item.mobsstorage.network_wand.not_linked");
+            return;
+        }
+        data.get(linked.get().networkId()).filter(network -> network.isMember(player.getUUID()))
+                .ifPresentOrElse(network -> openNode(player, pos, linked.get(), network),
+                        () -> message(player, "item.mobsstorage.network_wand.no_access"));
+    }
+
+    private static Optional<StorageNetwork> selectedOwnedNetwork(
+            ServerPlayer player,
+            ItemStack wand,
+            StorageNetworkSavedData data
+    ) {
+        Optional<UUID> selected = selectedNetwork(wand);
+        if (selected.isEmpty()) {
+            message(player, "item.mobsstorage.network_wand.select_first");
+            return Optional.empty();
+        }
+        Optional<StorageNetwork> network = data.get(selected.get()).filter(value -> value.isOwner(player.getUUID()));
+        if (network.isEmpty()) {
+            clearSelection(wand);
+            message(player, "item.mobsstorage.network_wand.selected_unavailable");
+        }
+        return network;
+    }
+
+    private static boolean link(ServerPlayer player, BlockPos pos, StorageNetwork network) {
         ServerLevel level = player.serverLevel();
         List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
-        if (storage.isEmpty() || storage.stream().map(NetworkService::existingNode).anyMatch(Optional::isPresent)) return;
+        if (storage.isEmpty() || storage.stream().map(NetworkService::existingNode).anyMatch(Optional::isPresent)) return false;
         NetworkNodeData old = storage.stream().map(NetworkService::nodeData).findFirst().orElse(NetworkNodeData.EMPTY);
         NetworkNodeData node = new NetworkNodeData(network.id(), old.name(), old.priority(), pos.immutable());
         setNodeData(level, storage, node);
         GlobalPos global = GlobalPos.of(level.dimension(), node.anchor());
         if (network.addNode(global)) {
-            ResourceLocation icon = StorageResolver.findLabel(level, pos).map(LabelData::icon).orElse(LabelData.AIR);
+            ResourceLocation icon = nodeIcon(level, pos);
             network.updateNode(global, node.name(), node.priority(), icon);
             StorageNetworkSavedData.get(player.server).changed();
+            return true;
         }
-        openNode(player, pos, node, network);
+        return false;
     }
 
     private static void unlink(ServerLevel level, NetworkNodeData node, StorageNetwork network) {
@@ -257,10 +360,10 @@ public final class NetworkService {
     }
 
     private static void openNode(ServerPlayer player, BlockPos clicked, NetworkNodeData node, StorageNetwork network) {
-        boolean source = network.source().filter(value -> value.equals(
+        boolean origin = network.origin().filter(value -> value.equals(
                 GlobalPos.of(player.serverLevel().dimension(), node.anchor()))).isPresent();
         PacketDistributor.sendToPlayer(player, new OpenNetworkNodePayload(
-                clicked, network.id(), network.name(), node.name(), node.priority(), source,
+                clicked, network.id(), network.name(), node.name(), node.priority(), origin,
                 network.isOwner(player.getUUID())));
     }
 
@@ -275,7 +378,7 @@ public final class NetworkService {
             String name = info.name().isBlank()
                     ? "Storage " + pos.pos().getX() + ", " + pos.pos().getY() + ", " + pos.pos().getZ() : info.name();
             return new NetworkSnapshot.Node(pos, name, info.priority(), info.icon(),
-                    network.source().filter(pos::equals).isPresent());
+                    network.origin().filter(pos::equals).isPresent());
         }).sorted(Comparator.comparingInt(NetworkSnapshot.Node::priority).reversed()
                 .thenComparing(NetworkSnapshot.Node::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new NetworkSnapshot(network.id(), network.name(), profileName(server, network.owner()),
@@ -313,6 +416,19 @@ public final class NetworkService {
         return tag.contains(SELECTED_NETWORK_NAME) ? Optional.of(tag.getString(SELECTED_NETWORK_NAME)) : Optional.empty();
     }
 
+    public static NetworkWandMode wandMode(ItemStack wand) {
+        if (!wand.is(ModItems.NETWORK_WAND.get())) return NetworkWandMode.ADD_STORAGE;
+        net.minecraft.nbt.CompoundTag tag = wand.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+        return NetworkWandMode.byName(tag.getString(WAND_MODE));
+    }
+
+    public static void cycleWandMode(ServerPlayer player, ItemStack wand) {
+        NetworkWandMode mode = wandMode(wand).next();
+        CustomData.update(DataComponents.CUSTOM_DATA, wand, tag -> tag.putString(WAND_MODE, mode.serializedName()));
+        player.displayClientMessage(Component.translatable("item.mobsstorage.network_wand.mode_changed",
+                Component.translatable(mode.translationKey())), true);
+    }
+
     private static void setSelection(ItemStack wand, UUID network, String name) {
         CustomData.update(DataComponents.CUSTOM_DATA, wand, tag -> {
             tag.putUUID(SELECTED_NETWORK, network);
@@ -333,5 +449,16 @@ public final class NetworkService {
         }
         if (player.getOffhandItem().is(ModItems.NETWORK_WAND.get())) return player.getOffhandItem();
         return ItemStack.EMPTY;
+    }
+
+    private static void message(ServerPlayer player, String key, Object... values) {
+        player.displayClientMessage(Component.translatable(key, values), true);
+    }
+
+    private static ResourceLocation nodeIcon(ServerLevel level, BlockPos pos) {
+        if (level.getBlockState(pos).is(ModBlocks.NETWORK_INTERFACE.get())) {
+            return BuiltInRegistries.ITEM.getKey(ModItems.NETWORK_INTERFACE.get());
+        }
+        return StorageResolver.findLabel(level, pos).map(LabelData::icon).orElse(LabelData.AIR);
     }
 }

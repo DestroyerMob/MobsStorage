@@ -65,13 +65,13 @@ public record NetworkSnapshot(
         }
     }
 
-    public record Node(GlobalPos pos, String name, int priority, ResourceLocation icon, boolean source) {
+    public record Node(GlobalPos pos, String name, int priority, ResourceLocation icon, boolean origin) {
         void write(RegistryFriendlyByteBuf buffer) {
             GlobalPos.STREAM_CODEC.encode(buffer, pos);
             buffer.writeUtf(name, 48);
             buffer.writeInt(priority);
             buffer.writeResourceLocation(icon);
-            buffer.writeBoolean(source);
+            buffer.writeBoolean(origin);
         }
 
         static Node read(RegistryFriendlyByteBuf buffer) {

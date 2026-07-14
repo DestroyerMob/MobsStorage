@@ -11,6 +11,7 @@ import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
@@ -72,25 +73,26 @@ public final class StorageLabelRenderer {
         if (minecraft.level == null || minecraft.player == null) {
             return;
         }
-        Map<BlockPos, LabelData> visible = new LinkedHashMap<>();
+        Map<BlockPos, RenderTarget> visible = new LinkedHashMap<>();
         CACHE.forEach((pos, label) -> {
             if (label.alwaysShow() && label.displayMode() != LabelDisplayMode.CROSSHAIR) {
-                visible.put(pos, label);
+                visible.put(pos, new RenderTarget(pos, label.face(), label));
             }
         });
         if (minecraft.hitResult instanceof BlockHitResult hit) {
             StorageResolver.findLabel(minecraft.level, hit.getBlockPos())
                     .filter(label -> label.displayMode() != LabelDisplayMode.CROSSHAIR)
-                    .ifPresent(label -> visible.put(label.anchor(), label));
+                    .ifPresent(label -> visible.put(label.anchor(),
+                            new RenderTarget(hit.getBlockPos(), hit.getDirection(), label)));
         }
         if (visible.isEmpty()) {
             return;
         }
 
         MultiBufferSource.BufferSource buffers = minecraft.renderBuffers().bufferSource();
-        for (Map.Entry<BlockPos, LabelData> entry : visible.entrySet()) {
-            if (minecraft.level.isLoaded(entry.getKey())) {
-                renderLabel(minecraft, event, buffers, entry.getKey(), entry.getValue());
+        for (RenderTarget target : visible.values()) {
+            if (minecraft.level.isLoaded(target.pos())) {
+                renderLabel(minecraft, event, buffers, target.pos(), target.face(), target.label());
             }
         }
         buffers.endBatch();
@@ -122,6 +124,7 @@ public final class StorageLabelRenderer {
             RenderLevelStageEvent event,
             MultiBufferSource buffers,
             BlockPos pos,
+            Direction face,
             LabelData label
     ) {
         net.minecraft.world.item.Item item = BuiltInRegistries.ITEM.get(label.icon());
@@ -130,7 +133,7 @@ public final class StorageLabelRenderer {
         }
         Camera camera = event.getCamera();
         Vec3 relative = Vec3.atCenterOf(pos)
-                .add(Vec3.atLowerCornerOf(label.face().getNormal()).scale(0.57D))
+                .add(Vec3.atLowerCornerOf(face.getNormal()).scale(0.57D))
                 .subtract(camera.getPosition());
         float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
         double bob = Math.sin((minecraft.level.getGameTime() + partial) * 0.12D) * 0.035D;
@@ -139,10 +142,10 @@ public final class StorageLabelRenderer {
         poses.translate(relative.x, relative.y + bob, relative.z);
         ItemDisplayContext context;
         if (label.displayMode() == LabelDisplayMode.SURFACE) {
-            switch (label.face()) {
+            switch (face) {
                 case UP -> poses.mulPose(Axis.XP.rotationDegrees(90.0F));
                 case DOWN -> poses.mulPose(Axis.XP.rotationDegrees(-90.0F));
-                default -> poses.mulPose(Axis.YP.rotationDegrees(180.0F - label.face().toYRot()));
+                default -> poses.mulPose(Axis.YP.rotationDegrees(180.0F - face.toYRot()));
             }
             context = ItemDisplayContext.FIXED;
         } else {
@@ -162,5 +165,8 @@ public final class StorageLabelRenderer {
                 pos.hashCode()
         );
         poses.popPose();
+    }
+
+    private record RenderTarget(BlockPos pos, Direction face, LabelData label) {
     }
 }
