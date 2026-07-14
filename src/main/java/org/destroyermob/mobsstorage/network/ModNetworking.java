@@ -10,9 +10,12 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
+import org.destroyermob.mobsstorage.networking.NetworkNodeData;
+import org.destroyermob.mobsstorage.networking.NetworkService;
+import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "1";
+    private static final String NETWORK_VERSION = "2";
 
     private ModNetworking() {
     }
@@ -22,13 +25,19 @@ public final class ModNetworking {
     }
 
     public static void openEditor(ServerPlayer player, net.minecraft.core.BlockPos pos, LabelData data, boolean installing) {
-        PacketDistributor.sendToPlayer(player, new OpenLabelEditorPayload(pos, data, installing));
+        NetworkNodeData node = StorageResolver.logicalStorage(player.serverLevel(), pos).stream()
+                .map(NetworkService::nodeData).findFirst().orElse(NetworkNodeData.EMPTY);
+        PacketDistributor.sendToPlayer(player, new OpenLabelEditorPayload(pos, data, node, installing));
     }
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(NETWORK_VERSION).optional();
         registrar.playToClient(OpenLabelEditorPayload.TYPE, OpenLabelEditorPayload.STREAM_CODEC, ModNetworking::handleOpenEditor);
         registrar.playToServer(SaveLabelPayload.TYPE, SaveLabelPayload.STREAM_CODEC, ModNetworking::handleSaveLabel);
+        registrar.playToClient(OpenNetworkManagerPayload.TYPE, OpenNetworkManagerPayload.STREAM_CODEC, ModNetworking::handleOpenManager);
+        registrar.playToClient(OpenNetworkNodePayload.TYPE, OpenNetworkNodePayload.STREAM_CODEC, ModNetworking::handleOpenNode);
+        registrar.playToServer(NetworkActionPayload.TYPE, NetworkActionPayload.STREAM_CODEC, ModNetworking::handleNetworkAction);
+        registrar.playToServer(SaveNetworkNodePayload.TYPE, SaveNetworkNodePayload.STREAM_CODEC, ModNetworking::handleSaveNode);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -42,6 +51,26 @@ public final class ModNetworking {
             if (context.player() instanceof ServerPlayer player) {
                 StorageLabelService.save(player, payload);
             }
+        });
+    }
+
+    private static void handleOpenManager(OpenNetworkManagerPayload payload, IPayloadContext context) {
+        if (FMLEnvironment.dist.isClient()) context.enqueueWork(() -> MobsStorageClient.openNetworkManager(payload));
+    }
+
+    private static void handleOpenNode(OpenNetworkNodePayload payload, IPayloadContext context) {
+        if (FMLEnvironment.dist.isClient()) context.enqueueWork(() -> MobsStorageClient.openNetworkNode(payload));
+    }
+
+    private static void handleNetworkAction(NetworkActionPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) NetworkService.handleAction(player, payload);
+        });
+    }
+
+    private static void handleSaveNode(SaveNetworkNodePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) NetworkService.saveNode(player, payload);
         });
     }
 }

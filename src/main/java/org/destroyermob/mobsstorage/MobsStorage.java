@@ -4,6 +4,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
@@ -14,6 +15,7 @@ import org.destroyermob.mobsstorage.network.ModNetworking;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.storage.StorageLabelEvents;
+import org.destroyermob.mobsstorage.networking.NetworkRefillService;
 
 @Mod(MobsStorage.MOD_ID)
 public final class MobsStorage {
@@ -25,9 +27,12 @@ public final class MobsStorage {
         ModNetworking.register(modBus);
         modBus.addListener(this::addCreativeTabItems);
 
-        NeoForge.EVENT_BUS.addListener(StorageLabelEvents::onRightClickBlock);
-        NeoForge.EVENT_BUS.addListener(StorageLabelEvents::onBreakBlock);
-        NeoForge.EVENT_BUS.addListener(StorageLabelEvents::onBlockPlaced);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onRightClickBlock);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onBreakBlock);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onBlockPlaced);
+        NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemDestroyed);
+        NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemUsed);
+        NeoForge.EVENT_BUS.addListener(NetworkRefillService::onPlayerTick);
 
         if (FMLEnvironment.dist.isClient()) {
             MobsStorageClient.register();
@@ -41,6 +46,7 @@ public final class MobsStorage {
     private void addCreativeTabItems(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.FUNCTIONAL_BLOCKS) {
             event.accept(ModItems.STORAGE_LABEL.get());
+            event.accept(ModItems.NETWORK_WAND.get());
         }
     }
 }

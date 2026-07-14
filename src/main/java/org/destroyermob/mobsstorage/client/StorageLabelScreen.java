@@ -42,6 +42,8 @@ public final class StorageLabelScreen extends Screen {
     private final List<String> filterEntries;
     private EditBox search;
     private EditBox filterInput;
+    private EditBox storageName;
+    private EditBox priorityInput;
     private Button applyButton;
     private CycleButton<Boolean> alwaysShowButton;
     private ResourceLocation selectedIcon;
@@ -83,8 +85,23 @@ public final class StorageLabelScreen extends Screen {
     protected void init() {
         int left = panelLeft();
         int columnWidth = columnWidth();
-        this.search = addRenderableWidget(new EditBox(
+        this.storageName = addRenderableWidget(new EditBox(
                 this.font, left, 28, columnWidth, 20,
+                Component.translatable("screen.mobsstorage.label.storage_name")
+        ));
+        this.storageName.setMaxLength(48);
+        this.storageName.setValue(payload.node().name());
+        this.storageName.setHint(Component.translatable("screen.mobsstorage.label.storage_name"));
+        this.priorityInput = addRenderableWidget(new EditBox(
+                this.font, rightColumnLeft(), 28, columnWidth, 20,
+                Component.translatable("screen.mobsstorage.label.priority")
+        ));
+        this.priorityInput.setMaxLength(5);
+        this.priorityInput.setValue(Integer.toString(payload.node().priority()));
+        this.priorityInput.setHint(Component.translatable("screen.mobsstorage.label.priority"));
+        this.priorityInput.setResponder(value -> updateValidation());
+        this.search = addRenderableWidget(new EditBox(
+                this.font, left, 52, columnWidth, 20,
                 Component.translatable("screen.mobsstorage.label.search")
         ));
         this.search.setHint(Component.translatable("screen.mobsstorage.label.search"));
@@ -92,7 +109,7 @@ public final class StorageLabelScreen extends Screen {
 
         int inputWidth = Math.max(50, columnWidth - 54);
         this.filterInput = addRenderableWidget(new EditBox(
-                this.font, rightColumnLeft(), 50, inputWidth, 20,
+                this.font, rightColumnLeft(), 74, inputWidth, 20,
                 Component.translatable("screen.mobsstorage.label.filter_input")
         ));
         this.filterInput.setMaxLength(256);
@@ -103,7 +120,7 @@ public final class StorageLabelScreen extends Screen {
         });
         addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.add"), button -> commitInput()
-        ).bounds(rightColumnLeft() + inputWidth + 4, 50, 50, 20).build());
+        ).bounds(rightColumnLeft() + inputWidth + 4, 74, 50, 20).build());
 
         int footerY = footerY();
         int actionWidth = Math.min(80, Math.max(54, (panelWidth() - 16) / 4));
@@ -144,7 +161,8 @@ public final class StorageLabelScreen extends Screen {
             return;
         }
         PacketDistributor.sendToServer(new SaveLabelPayload(
-                payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), displayMode, alwaysShow
+                payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), displayMode,
+                storageName.getValue(), parsePriority(), alwaysShow
         ));
         onClose();
     }
@@ -191,6 +209,9 @@ public final class StorageLabelScreen extends Screen {
                 error = Optional.of(Component.translatable(
                         "screen.mobsstorage.label.invalid_entry", "too many entries"));
             }
+            if (error.isEmpty() && priorityInput != null && !validPriority()) {
+                error = Optional.of(Component.translatable("screen.mobsstorage.label.invalid_priority"));
+            }
             validationMessage = error.orElse(CommonComponents.EMPTY);
         }
         if (applyButton != null) {
@@ -229,15 +250,15 @@ public final class StorageLabelScreen extends Screen {
 
     private void renderSelectedIcon(GuiGraphics graphics) {
         int x = rightColumnLeft();
-        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.selected_icon"), x, 29, 0xD8D8D8, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.selected_icon"), x, 53, 0xD8D8D8, false);
         if (selectedIcon == null) {
-            graphics.drawString(font, Component.translatable("screen.mobsstorage.label.none"), x + 78, 29, 0xAAAAAA, false);
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.label.none"), x + 78, 53, 0xAAAAAA, false);
             return;
         }
         Item item = BuiltInRegistries.ITEM.get(selectedIcon);
-        graphics.renderFakeItem(item.getDefaultInstance(), x + 76, 24);
+        graphics.renderFakeItem(item.getDefaultInstance(), x + 76, 48);
         String name = font.plainSubstrByWidth(item.getDescription().getString(), Math.max(30, columnWidth() - 98));
-        graphics.drawString(font, name, x + 96, 29, 0xFFFFFF, false);
+        graphics.drawString(font, name, x + 96, 53, 0xFFFFFF, false);
     }
 
     private void renderItemGrid(GuiGraphics graphics, int mouseX, int mouseY) {
@@ -275,7 +296,7 @@ public final class StorageLabelScreen extends Screen {
 
     private void renderSuggestions(GuiGraphics graphics, int mouseX, int mouseY) {
         int x = rightColumnLeft();
-        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.suggested_tags"), x, 77, 0xD8D8D8, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.suggested_tags"), x, 101, 0xD8D8D8, false);
         List<String> suggestions = matchingSuggestions();
         if (suggestions.isEmpty()) {
             graphics.drawString(font, Component.translatable("screen.mobsstorage.label.no_suggestions"), x, suggestionsY() + 4, 0x888888, false);
@@ -521,11 +542,11 @@ public final class StorageLabelScreen extends Screen {
     }
 
     private int gridY() {
-        return 52;
+        return 76;
     }
 
     private int suggestionsY() {
-        return 88;
+        return 112;
     }
 
     private int filterLabelY() {
@@ -542,6 +563,19 @@ public final class StorageLabelScreen extends Screen {
 
     private int footerY() {
         return height - 26;
+    }
+
+    private boolean validPriority() {
+        try {
+            int value = Integer.parseInt(priorityInput.getValue().trim());
+            return value >= -9999 && value <= 9999;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    private int parsePriority() {
+        return validPriority() ? Integer.parseInt(priorityInput.getValue().trim()) : 0;
     }
 
     @Override

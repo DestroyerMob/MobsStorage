@@ -12,6 +12,10 @@ Mobs Storage adds configurable storage labels to Minecraft 1.21.1 on NeoForge. A
 - Rejected manual and automated insertion is silent. Applying a filter drops existing disallowed contents at the player's feet.
 - One label covers both halves of a double chest.
 - Empty-hand sneak-use edits a label; shears remove and return it.
+- Craft a permanent Network Wand from two sticks and redstone, then sneak-use it in air to create, join, select, and manage storage networks.
+- Link storage to one network at a time, name it, assign numeric priorities, select a network source, and manage public/private membership.
+- Depositing into linked storage routes to the opened storage first, then matching filtered storage, then normal available storage; priority breaks ties.
+- Within 256 blocks on each axis of a network source, a member automatically receives a replacement stack or tool after the last inventory replacement is consumed or broken.
 
 Custom/networked storage systems such as Sophisticated Storage, Tom's Simple Storage, Ender Storage, and Lootr are intentionally outside the first compatibility slice.
 

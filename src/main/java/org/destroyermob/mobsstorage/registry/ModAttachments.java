@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import org.destroyermob.mobsstorage.MobsStorage;
+import org.destroyermob.mobsstorage.networking.NetworkNodeData;
 import org.destroyermob.mobsstorage.storage.LabelData;
 
 public final class ModAttachments {
@@ -16,6 +17,12 @@ public final class ModAttachments {
             TYPES.register("storage_label", () -> AttachmentType.builder(() -> LabelData.EMPTY)
                     .serialize(LabelData.CODEC, LabelData::configured)
                     .sync(LabelData.STREAM_CODEC)
+                    .build());
+
+    public static final DeferredHolder<AttachmentType<?>, AttachmentType<NetworkNodeData>> NETWORK_NODE =
+            TYPES.register("network_node", () -> AttachmentType.builder(() -> NetworkNodeData.EMPTY)
+                    .serialize(NetworkNodeData.CODEC, NetworkNodeData::configured)
+                    .sync(NetworkNodeData.STREAM_CODEC)
                     .build());
 
     private ModAttachments() {

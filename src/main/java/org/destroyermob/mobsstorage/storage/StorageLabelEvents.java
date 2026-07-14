@@ -18,12 +18,16 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import org.destroyermob.mobsstorage.network.ModNetworking;
 import org.destroyermob.mobsstorage.registry.ModItems;
+import org.destroyermob.mobsstorage.networking.NetworkService;
 
 public final class StorageLabelEvents {
     private StorageLabelEvents() {
     }
 
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
+        if (event.isCanceled()) {
+            return;
+        }
         Player player = event.getEntity();
         Level level = event.getLevel();
         if (!player.isShiftKeyDown() || !StorageResolver.eligible(level, event.getPos())) {
@@ -67,9 +71,10 @@ public final class StorageLabelEvents {
     }
 
     public static void onBreakBlock(BlockEvent.BreakEvent event) {
-        if (!(event.getLevel() instanceof ServerLevel level)) {
+        if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
+        NetworkService.onStorageBroken(level, event.getPos());
         Optional<LabelData> label = StorageResolver.findLabel(level, event.getPos());
         if (label.isEmpty() || !label.get().anchor().equals(event.getPos())) {
             return;
@@ -81,7 +86,7 @@ public final class StorageLabelEvents {
     }
 
     public static void onBlockPlaced(BlockEvent.EntityPlaceEvent event) {
-        if (!(event.getLevel() instanceof ServerLevel level) || !event.getPlacedBlock().is(org.destroyermob.mobsstorage.registry.ModTags.LABELABLE_STORAGE)) {
+        if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level) || !event.getPlacedBlock().is(org.destroyermob.mobsstorage.registry.ModTags.LABELABLE_STORAGE)) {
             return;
         }
         BlockPos pos = event.getPos();
@@ -89,6 +94,7 @@ public final class StorageLabelEvents {
             List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
             storage.stream().map(StorageResolver::existingLabel).flatMap(Optional::stream).findFirst()
                     .ifPresent(label -> StorageResolver.setLabel(level, storage, label));
+            NetworkService.onStorageJoined(level, pos);
         });
     }
 
@@ -98,7 +104,11 @@ public final class StorageLabelEvents {
         if (storage.stream().noneMatch(blockEntity -> StorageResolver.existingLabel(blockEntity).isPresent())) {
             return;
         }
+        org.destroyermob.mobsstorage.networking.NetworkNodeData node = storage.stream()
+                .map(NetworkService::nodeData).findFirst()
+                .orElse(org.destroyermob.mobsstorage.networking.NetworkNodeData.EMPTY);
         StorageResolver.clearLabel(level, storage);
+        NetworkService.updateDetails(level, pos, node.name(), node.priority(), LabelData.AIR);
         if (!player.getAbilities().instabuild) {
             ItemStack label = new ItemStack(ModItems.STORAGE_LABEL.get());
             if (!player.addItem(label)) {

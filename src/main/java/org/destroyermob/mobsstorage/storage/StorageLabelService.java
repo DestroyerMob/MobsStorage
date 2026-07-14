@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 import org.destroyermob.mobsstorage.network.SaveLabelPayload;
 import org.destroyermob.mobsstorage.registry.ModItems;
+import org.destroyermob.mobsstorage.networking.NetworkService;
 
 public final class StorageLabelService {
     private static final double MAX_DISTANCE_SQUARED = 64.0D;
@@ -40,6 +41,7 @@ public final class StorageLabelService {
         LabelData data = new LabelData(
                 payload.icon(), payload.filters(), payload.face(), payload.displayMode(), payload.alwaysShow(), anchor);
         StorageResolver.setLabel(level, storage, data);
+        NetworkService.updateDetails(level, pos, payload.storageName(), payload.priority(), payload.icon());
         ejectDisallowed(level, storage, data, player.position());
     }
 
