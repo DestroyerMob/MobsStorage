@@ -24,6 +24,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.destroyermob.mobsstorage.network.OpenLabelEditorPayload;
 import org.destroyermob.mobsstorage.network.SaveLabelPayload;
 import org.destroyermob.mobsstorage.storage.FilterRules;
+import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 
 public final class StorageLabelScreen extends Screen {
     private static final int PANEL_MAX_WIDTH = 520;
@@ -35,12 +36,16 @@ public final class StorageLabelScreen extends Screen {
 
     private final OpenLabelEditorPayload payload;
     private final List<Item> allItems;
+    private final List<String> allItemIds;
     private final List<String> allItemTags;
+    private final List<String> allModFilters;
     private final List<String> filterEntries;
     private EditBox search;
     private EditBox filterInput;
     private Button applyButton;
+    private CycleButton<Boolean> alwaysShowButton;
     private ResourceLocation selectedIcon;
+    private LabelDisplayMode displayMode;
     private boolean alwaysShow;
     private int itemOffset;
     private int suggestionOffset;
@@ -53,14 +58,23 @@ public final class StorageLabelScreen extends Screen {
         super(Component.translatable("screen.mobsstorage.label.title"));
         this.payload = payload;
         this.selectedIcon = payload.data().configured() ? payload.data().icon() : null;
+        this.displayMode = payload.data().displayMode();
         this.alwaysShow = payload.data().alwaysShow();
         this.filterEntries = new ArrayList<>(payload.data().filters());
         this.allItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
                 .sorted(Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString()))
                 .toList();
+        this.allItemIds = allItems.stream()
+                .map(item -> BuiltInRegistries.ITEM.getKey(item).toString())
+                .toList();
         this.allItemTags = BuiltInRegistries.ITEM.getTagNames()
                 .map(tag -> "#" + tag.location())
+                .sorted()
+                .toList();
+        this.allModFilters = allItems.stream()
+                .map(item -> "@" + BuiltInRegistries.ITEM.getKey(item).getNamespace())
+                .distinct()
                 .sorted()
                 .toList();
     }
@@ -92,13 +106,25 @@ public final class StorageLabelScreen extends Screen {
         ).bounds(rightColumnLeft() + inputWidth + 4, 50, 50, 20).build());
 
         int footerY = footerY();
-        int alwaysWidth = Math.min(130, Math.max(90, panelWidth() / 3));
-        int actionWidth = Math.min(80, Math.max(54, (panelWidth() - alwaysWidth - 16) / 2));
-        addRenderableWidget(CycleButton.onOffBuilder(alwaysShow).create(
-                left, footerY, alwaysWidth, 20,
+        int actionWidth = Math.min(80, Math.max(54, (panelWidth() - 16) / 4));
+        int settingWidth = Math.min(130, Math.max(54, (panelWidth() - actionWidth * 2 - 16) / 2));
+        addRenderableWidget(CycleButton.builder(StorageLabelScreen::displayModeName)
+                .withValues(LabelDisplayMode.values())
+                .withInitialValue(displayMode)
+                .create(left, footerY, settingWidth, 20,
+                        Component.translatable("screen.mobsstorage.label.display_mode"),
+                        (button, value) -> {
+                            displayMode = value;
+                            if (alwaysShowButton != null) {
+                                alwaysShowButton.active = value != LabelDisplayMode.CROSSHAIR;
+                            }
+                        }));
+        this.alwaysShowButton = addRenderableWidget(CycleButton.onOffBuilder(alwaysShow).create(
+                left + settingWidth + 4, footerY, settingWidth, 20,
                 Component.translatable("screen.mobsstorage.label.always_show"),
                 (button, value) -> alwaysShow = value
         ));
+        this.alwaysShowButton.active = displayMode != LabelDisplayMode.CROSSHAIR;
         this.applyButton = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.apply"), button -> apply()
         ).bounds(left + panelWidth() - actionWidth * 2 - 4, footerY, actionWidth, 20).build());
@@ -118,7 +144,7 @@ public final class StorageLabelScreen extends Screen {
             return;
         }
         PacketDistributor.sendToServer(new SaveLabelPayload(
-                payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), alwaysShow
+                payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), displayMode, alwaysShow
         ));
         onClose();
     }
@@ -380,32 +406,68 @@ public final class StorageLabelScreen extends Screen {
 
     private List<String> matchingSuggestions() {
         Set<String> selectedTags = new HashSet<>();
+        String selectedId = selectedIcon == null ? "" : selectedIcon.toString();
+        String selectedMod = selectedIcon == null ? "" : "@" + selectedIcon.getNamespace();
         if (selectedIcon != null) {
             BuiltInRegistries.ITEM.get(selectedIcon).getDefaultInstance().getTags()
                     .map(tag -> "#" + tag.location())
                     .forEach(selectedTags::add);
         }
         String query = filterInput == null ? "" : filterInput.getValue().trim().toLowerCase(Locale.ROOT);
-        return allItemTags.stream()
-                .filter(tag -> !filterEntries.contains(tag))
-                .filter(tag -> query.isEmpty() || tag.toLowerCase(Locale.ROOT).contains(query))
+        java.util.stream.Stream<String> candidates;
+        if (query.startsWith("#")) {
+            candidates = allItemTags.stream();
+        } else if (query.startsWith("@")) {
+            candidates = allModFilters.stream();
+        } else if (query.startsWith("&")) {
+            candidates = allItemIds.stream().map(id -> "&" + id);
+        } else if (query.startsWith("$")) {
+            candidates = java.util.stream.Stream.empty();
+        } else {
+            candidates = java.util.stream.Stream.of(
+                    allItemIds.stream(), allItemTags.stream(), allModFilters.stream())
+                    .flatMap(stream -> stream);
+        }
+        return candidates
+                .filter(suggestion -> !filterEntries.contains(suggestion))
+                .filter(suggestion -> query.isEmpty() || suggestion.toLowerCase(Locale.ROOT).contains(query))
+                .distinct()
                 .sorted(Comparator
-                        .comparingInt((String tag) -> tagPriority(tag, selectedTags))
+                        .comparingInt((String suggestion) -> suggestionPriority(
+                                suggestion, selectedId, selectedMod, selectedTags))
                         .thenComparing(Comparator.naturalOrder()))
                 .toList();
     }
 
-    private static int tagPriority(String tag, Set<String> selectedTags) {
-        if (selectedTags.contains(tag)) {
+    private static int suggestionPriority(
+            String suggestion,
+            String selectedId,
+            String selectedMod,
+            Set<String> selectedTags
+    ) {
+        if (suggestion.equals(selectedId)) {
             return 0;
         }
-        if (tag.startsWith("#c:")) {
+        if (selectedTags.contains(suggestion)) {
             return 1;
         }
-        if (tag.startsWith("#minecraft:")) {
+        if (suggestion.equals(selectedMod)) {
             return 2;
         }
-        return 3;
+        if (suggestion.startsWith("#c:")) {
+            return 3;
+        }
+        if (suggestion.startsWith("@")) {
+            return 4;
+        }
+        if (suggestion.startsWith("#")) {
+            return 5;
+        }
+        return 6;
+    }
+
+    private static Component displayModeName(LabelDisplayMode mode) {
+        return Component.translatable("screen.mobsstorage.label.display_mode." + mode.getSerializedName());
     }
 
     private void clampOffsets() {

@@ -37,7 +37,8 @@ public final class StorageLabelService {
         }
 
         BlockPos anchor = existing.map(LabelData::anchor).filter(level::isLoaded).orElse(pos).immutable();
-        LabelData data = new LabelData(payload.icon(), payload.filters(), payload.face(), payload.alwaysShow(), anchor);
+        LabelData data = new LabelData(
+                payload.icon(), payload.filters(), payload.face(), payload.displayMode(), payload.alwaysShow(), anchor);
         StorageResolver.setLabel(level, storage, data);
         ejectDisallowed(level, storage, data, player.position());
     }
@@ -62,7 +63,7 @@ public final class StorageLabelService {
             }
             for (int slot = 0; slot < container.getContainerSize(); slot++) {
                 ItemStack stack = container.getItem(slot);
-                if (!stack.isEmpty() && !data.allows(stack)) {
+                if (!stack.isEmpty() && !data.allows(stack, level)) {
                     ItemStack removed = container.removeItemNoUpdate(slot);
                     ItemEntity entity = new ItemEntity(level, dropAt.x, dropAt.y, dropAt.z, removed);
                     entity.setPickUpDelay(0);

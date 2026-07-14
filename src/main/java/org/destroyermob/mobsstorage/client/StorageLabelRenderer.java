@@ -22,7 +22,9 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import org.destroyermob.mobsstorage.storage.LabelData;
+import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class StorageLabelRenderer {
@@ -72,12 +74,14 @@ public final class StorageLabelRenderer {
         }
         Map<BlockPos, LabelData> visible = new LinkedHashMap<>();
         CACHE.forEach((pos, label) -> {
-            if (label.alwaysShow()) {
+            if (label.alwaysShow() && label.displayMode() != LabelDisplayMode.CROSSHAIR) {
                 visible.put(pos, label);
             }
         });
         if (minecraft.hitResult instanceof BlockHitResult hit) {
-            StorageResolver.findLabel(minecraft.level, hit.getBlockPos()).ifPresent(label -> visible.put(label.anchor(), label));
+            StorageResolver.findLabel(minecraft.level, hit.getBlockPos())
+                    .filter(label -> label.displayMode() != LabelDisplayMode.CROSSHAIR)
+                    .ifPresent(label -> visible.put(label.anchor(), label));
         }
         if (visible.isEmpty()) {
             return;
@@ -90,6 +94,27 @@ public final class StorageLabelRenderer {
             }
         }
         buffers.endBatch();
+    }
+
+    public static void renderHud(RenderGuiEvent.Post event) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null || minecraft.player == null || minecraft.screen != null || minecraft.options.hideGui
+                || !(minecraft.hitResult instanceof BlockHitResult hit)) {
+            return;
+        }
+        StorageResolver.findLabel(minecraft.level, hit.getBlockPos())
+                .filter(label -> label.displayMode() == LabelDisplayMode.CROSSHAIR)
+                .ifPresent(label -> {
+                    net.minecraft.world.item.Item item = BuiltInRegistries.ITEM.get(label.icon());
+                    if (item == net.minecraft.world.item.Items.AIR) {
+                        return;
+                    }
+                    int x = event.getGuiGraphics().guiWidth() / 2 + 12;
+                    int y = event.getGuiGraphics().guiHeight() / 2 - 10;
+                    event.getGuiGraphics().fill(x - 2, y - 2, x + 18, y + 18, 0xA0101010);
+                    event.getGuiGraphics().renderOutline(x - 2, y - 2, 20, 20, 0xB0FFFFFF);
+                    event.getGuiGraphics().renderFakeItem(new ItemStack(item), x, y);
+                });
     }
 
     private static void renderLabel(
@@ -112,12 +137,23 @@ public final class StorageLabelRenderer {
         PoseStack poses = event.getPoseStack();
         poses.pushPose();
         poses.translate(relative.x, relative.y + bob, relative.z);
-        poses.mulPose(camera.rotation());
-        poses.mulPose(Axis.YP.rotationDegrees(180.0F));
+        ItemDisplayContext context;
+        if (label.displayMode() == LabelDisplayMode.SURFACE) {
+            switch (label.face()) {
+                case UP -> poses.mulPose(Axis.XP.rotationDegrees(90.0F));
+                case DOWN -> poses.mulPose(Axis.XP.rotationDegrees(-90.0F));
+                default -> poses.mulPose(Axis.YP.rotationDegrees(180.0F - label.face().toYRot()));
+            }
+            context = ItemDisplayContext.FIXED;
+        } else {
+            poses.mulPose(camera.rotation());
+            poses.mulPose(Axis.YP.rotationDegrees(180.0F));
+            context = ItemDisplayContext.GUI;
+        }
         poses.scale(0.55F, 0.55F, 0.55F);
         minecraft.getItemRenderer().renderStatic(
                 new ItemStack(item),
-                ItemDisplayContext.GUI,
+                context,
                 LevelRenderer.getLightColor(minecraft.level, pos),
                 OverlayTexture.NO_OVERLAY,
                 poses,

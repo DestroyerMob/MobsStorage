@@ -11,6 +11,7 @@ public final class MobsStorageClient {
     public static void register() {
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::onClientTick);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::render);
+        NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::renderHud);
     }
 
     public static void openEditor(OpenLabelEditorPayload payload) {

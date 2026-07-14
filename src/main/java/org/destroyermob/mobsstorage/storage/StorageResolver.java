@@ -68,7 +68,14 @@ public final class StorageResolver {
     }
 
     public static boolean allows(Container container, ItemStack stack) {
-        return labelFor(container).map(label -> label.allows(stack)).orElse(true);
+        if (container instanceof BlockEntity blockEntity) {
+            return existingLabel(blockEntity).map(label -> label.allows(stack, blockEntity.getLevel())).orElse(true);
+        }
+        if (container instanceof CompoundContainer compound) {
+            CompoundContainerAccessor accessor = (CompoundContainerAccessor) compound;
+            return allows(accessor.mobsstorage$getFirst(), stack) && allows(accessor.mobsstorage$getSecond(), stack);
+        }
+        return true;
     }
 
     public static void setLabel(Level level, List<BlockEntity> storage, LabelData data) {

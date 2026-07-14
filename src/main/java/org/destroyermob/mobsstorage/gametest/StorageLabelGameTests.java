@@ -3,8 +3,10 @@ package org.destroyermob.mobsstorage.gametest;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.item.ItemStack;
@@ -24,6 +26,7 @@ import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.storage.LabelData;
+import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
@@ -54,6 +57,27 @@ public final class StorageLabelGameTests {
         helper.assertTrue(FilterRules.matches(new ItemStack(Items.DIAMOND), List.of("#c:ingots", "#c:gems")), "Common gem tag did not match");
         helper.assertFalse(FilterRules.matches(new ItemStack(Items.STICK), List.of("#c:ingots", "#c:gems")), "Unlisted stick matched whitelist");
         helper.assertTrue(FilterRules.matches(new ItemStack(Items.STICK), List.of()), "Empty whitelist did not allow all items");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void searchExpressionsMatch(GameTestHelper helper) {
+        ItemStack iron = new ItemStack(Items.IRON_INGOT);
+        helper.assertTrue(FilterRules.matches(iron, List.of("@minecraft")), "Mod-id search did not match");
+        helper.assertTrue(FilterRules.matches(iron, List.of("&minecraft:iron")), "Resource-id search did not match");
+        helper.assertTrue(FilterRules.matches(iron, List.of("#ingots")), "Tag-name search did not match");
+        helper.assertTrue(FilterRules.matches(iron, List.of("@minecraft ingot")), "AND search did not match");
+        helper.assertFalse(FilterRules.matches(new ItemStack(Items.STICK), List.of("@minecraft ingot")),
+                "AND search accepted a partial match");
+        helper.assertTrue(FilterRules.matches(new ItemStack(ModItems.STORAGE_LABEL.get()),
+                List.of("@minecraft | @mobsstorage")), "OR search did not match");
+        helper.assertTrue(FilterRules.matches(new ItemStack(ModItems.STORAGE_LABEL.get()),
+                List.of("-@minecraft @mobsstorage")), "Negated search did not match");
+        ItemStack named = new ItemStack(Items.STICK);
+        named.set(DataComponents.CUSTOM_NAME, Component.literal("Warehouse Token"));
+        helper.assertTrue(FilterRules.matches(named, List.of("$warehouse")), "Tooltip search did not match");
+        helper.assertTrue(FilterRules.validate(List.of("@minecraft", "#c:ingots", "iron")).isEmpty(),
+                "Valid search expressions failed validation");
         helper.succeed();
     }
 
@@ -100,6 +124,7 @@ public final class StorageLabelGameTests {
     }
 
     private static LabelData label(BlockPos anchor, List<String> filters) {
-        return new LabelData(ResourceLocation.withDefaultNamespace("iron_ingot"), filters, Direction.NORTH, false, anchor);
+        return new LabelData(ResourceLocation.withDefaultNamespace("iron_ingot"), filters, Direction.NORTH,
+                LabelDisplayMode.SURFACE, false, anchor);
     }
 }

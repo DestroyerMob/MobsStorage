@@ -59,6 +59,7 @@ public final class StorageLabelEvents {
                 LabelData.AIR,
                 List.of(),
                 event.getFace(),
+                LabelDisplayMode.CROSSHAIR,
                 false,
                 event.getPos().immutable()
         ));

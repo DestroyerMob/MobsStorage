@@ -10,12 +10,14 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.storage.FilterRules;
+import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 
 public record SaveLabelPayload(
         BlockPos pos,
         ResourceLocation icon,
         List<String> filters,
         Direction face,
+        LabelDisplayMode displayMode,
         boolean alwaysShow
 ) implements CustomPacketPayload {
     public static final Type<SaveLabelPayload> TYPE = new Type<>(MobsStorage.id("save_label"));
@@ -32,6 +34,7 @@ public record SaveLabelPayload(
         buffer.writeVarInt(filters.size());
         filters.forEach(filter -> buffer.writeUtf(filter, 256));
         buffer.writeEnum(face);
+        buffer.writeEnum(displayMode);
         buffer.writeBoolean(alwaysShow);
     }
 
@@ -47,7 +50,9 @@ public record SaveLabelPayload(
         for (int index = size; index < encodedSize; index++) {
             buffer.readUtf(256);
         }
-        return new SaveLabelPayload(pos, icon, filters, buffer.readEnum(Direction.class), buffer.readBoolean());
+        Direction face = buffer.readEnum(Direction.class);
+        LabelDisplayMode displayMode = buffer.readEnum(LabelDisplayMode.class);
+        return new SaveLabelPayload(pos, icon, filters, face, displayMode, buffer.readBoolean());
     }
 
     @Override

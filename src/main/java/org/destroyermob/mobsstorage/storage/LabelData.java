@@ -8,22 +8,27 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 
 public record LabelData(
         ResourceLocation icon,
         List<String> filters,
         Direction face,
+        LabelDisplayMode displayMode,
         boolean alwaysShow,
         BlockPos anchor
 ) {
     public static final ResourceLocation AIR = ResourceLocation.withDefaultNamespace("air");
-    public static final LabelData EMPTY = new LabelData(AIR, List.of(), Direction.NORTH, false, BlockPos.ZERO);
+    public static final LabelData EMPTY = new LabelData(
+            AIR, List.of(), Direction.NORTH, LabelDisplayMode.CROSSHAIR, false, BlockPos.ZERO);
 
     public static final Codec<LabelData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             ResourceLocation.CODEC.fieldOf("icon").forGetter(LabelData::icon),
             Codec.STRING.listOf().fieldOf("filters").forGetter(LabelData::filters),
             Direction.CODEC.fieldOf("face").forGetter(LabelData::face),
+            LabelDisplayMode.CODEC.optionalFieldOf("display_mode", LabelDisplayMode.BILLBOARD).forGetter(LabelData::displayMode),
             Codec.BOOL.fieldOf("always_show").forGetter(LabelData::alwaysShow),
             BlockPos.CODEC.fieldOf("anchor").forGetter(LabelData::anchor)
     ).apply(instance, LabelData::new));
@@ -43,11 +48,16 @@ public record LabelData(
         return !configured() || FilterRules.matches(stack, filters);
     }
 
+    public boolean allows(ItemStack stack, Level level) {
+        return !configured() || FilterRules.matches(stack, filters, Item.TooltipContext.of(level));
+    }
+
     private void write(RegistryFriendlyByteBuf buffer) {
         buffer.writeResourceLocation(icon);
         buffer.writeVarInt(filters.size());
         filters.forEach(filter -> buffer.writeUtf(filter, 256));
         buffer.writeEnum(face);
+        buffer.writeEnum(displayMode);
         buffer.writeBoolean(alwaysShow);
         buffer.writeBlockPos(anchor);
     }
@@ -59,6 +69,8 @@ public record LabelData(
         for (int index = 0; index < size; index++) {
             filters.add(buffer.readUtf(256));
         }
-        return new LabelData(icon, filters, buffer.readEnum(Direction.class), buffer.readBoolean(), buffer.readBlockPos());
+        Direction face = buffer.readEnum(Direction.class);
+        LabelDisplayMode displayMode = buffer.readEnum(LabelDisplayMode.class);
+        return new LabelData(icon, filters, face, displayMode, buffer.readBoolean(), buffer.readBlockPos());
     }
 }
