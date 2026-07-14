@@ -8,6 +8,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -16,6 +17,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModItems;
@@ -57,6 +60,7 @@ public final class NetworkGameTests {
         ChestBlockEntity second = helper.getBlockEntity(SECOND);
         ChestBlockEntity third = helper.getBlockEntity(THIRD);
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getAbilities().instabuild = false;
         BlockPos playerPos = helper.absolutePos(FIRST).above();
         player.teleportTo(playerPos.getX() + 0.5D, playerPos.getY(), playerPos.getZ() + 0.5D);
         StorageNetworkSavedData data = StorageNetworkSavedData.get(helper.getLevel().getServer());
@@ -93,10 +97,23 @@ public final class NetworkGameTests {
 
         first.setItem(0, ItemStack.EMPTY);
         third.setItem(0, new ItemStack(Items.COBBLESTONE, 64));
-        helper.assertTrue(NetworkRefillService.refill(player, new ItemStack(Items.COBBLESTONE), InteractionHand.MAIN_HAND),
-                "Network refill did not find building blocks");
-        helper.assertTrue(player.getMainHandItem().is(Items.COBBLESTONE), "Refill did not restore the empty hand");
-        helper.assertTrue(player.getMainHandItem().getCount() == 64, "Refill did not restore a full stack");
+        ItemStack nearlyBroken = new ItemStack(Items.IRON_PICKAXE);
+        nearlyBroken.setDamageValue(nearlyBroken.getMaxDamage() - 1);
+        player.setItemInHand(InteractionHand.MAIN_HAND, nearlyBroken);
+        third.setItem(0, new ItemStack(Items.IRON_PICKAXE));
+        nearlyBroken.hurtAndBreak(1, player, EquipmentSlot.MAINHAND);
+        helper.assertTrue(nearlyBroken.isEmpty(), "Test pickaxe did not break");
+        NetworkRefillService.onPlayerTick(new net.neoforged.neoforge.event.tick.PlayerTickEvent.Post(player));
+        helper.assertTrue(player.getMainHandItem().is(Items.IRON_PICKAXE),
+                "Broken tool was not restored through the real durability trigger");
+        player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        third.setItem(1, new ItemStack(Items.BREAD, 16));
+        NeoForge.EVENT_BUS.post(new LivingEntityUseItemEvent.Finish(
+                player, new ItemStack(Items.BREAD), 0, ItemStack.EMPTY));
+        NetworkRefillService.onPlayerTick(new net.neoforged.neoforge.event.tick.PlayerTickEvent.Post(player));
+        helper.assertTrue(player.getMainHandItem().is(Items.BREAD)
+                        && player.getMainHandItem().getCount() == 16,
+                "Consumed stack was not restored through the use-finish event");
         helper.succeed();
     }
 

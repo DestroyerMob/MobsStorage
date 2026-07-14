@@ -26,13 +26,13 @@ public final class NetworkRefillService {
 
     public static void onItemDestroyed(PlayerDestroyItemEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            queue(player, event.getOriginal(), event.getHand());
+            schedule(player, event.getOriginal(), event.getHand());
         }
     }
 
     public static void onItemUsed(LivingEntityUseItemEvent.Finish event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            queue(player, event.getItem(), event.getHand());
+            schedule(player, event.getItem(), event.getHand());
         }
     }
 
@@ -45,7 +45,7 @@ public final class NetworkRefillService {
         }
     }
 
-    private static void queue(ServerPlayer player, ItemStack original, InteractionHand hand) {
+    public static void schedule(ServerPlayer player, ItemStack original, InteractionHand hand) {
         if (original.isEmpty()) return;
         List<PendingRefill> pending = PENDING.computeIfAbsent(player.getUUID(), unused -> new ArrayList<>());
         boolean duplicate = pending.stream().anyMatch(value -> value.hand() == hand

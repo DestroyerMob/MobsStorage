@@ -21,7 +21,9 @@ public final class MobsStorageClient {
     }
 
     public static void openNetworkManager(OpenNetworkManagerPayload payload) {
-        Minecraft.getInstance().setScreen(new NetworkManagerScreen(payload));
+        Minecraft minecraft = Minecraft.getInstance();
+        boolean accessPage = minecraft.screen instanceof NetworkManagerScreen screen && screen.accessPage();
+        minecraft.setScreen(new NetworkManagerScreen(payload, accessPage));
     }
 
     public static void openNetworkNode(OpenNetworkNodePayload payload) {

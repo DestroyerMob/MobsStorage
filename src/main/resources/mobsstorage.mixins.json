@@ -6,6 +6,7 @@
     "AbstractContainerMenuMixin",
     "BaseContainerBlockEntityMixin",
     "CompoundContainerAccessor",
+    "ItemStackMixin",
     "SlotMixin"
   ],
   "injectors": {
