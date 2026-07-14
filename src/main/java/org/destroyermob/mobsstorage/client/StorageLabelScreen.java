@@ -1,5 +1,6 @@
 package org.destroyermob.mobsstorage.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -9,7 +10,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.CommonComponents;
@@ -22,28 +22,36 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.destroyermob.mobsstorage.network.OpenLabelEditorPayload;
 import org.destroyermob.mobsstorage.network.SaveLabelPayload;
 import org.destroyermob.mobsstorage.storage.FilterRules;
-import org.destroyermob.mobsstorage.storage.LabelData;
 
 public final class StorageLabelScreen extends Screen {
-    private static final int CELL = 20;
-    private static final int GRID_COLUMNS = 10;
-    private static final int GRID_ROWS = 4;
+    private static final int PANEL_MAX_WIDTH = 520;
+    private static final int PANEL_GAP = 12;
+    private static final int CELL = 24;
+    private static final int SUGGESTION_ROW_HEIGHT = 16;
+    private static final int SUGGESTION_ROWS = 3;
+    private static final int FILTER_ROW_HEIGHT = 20;
 
     private final OpenLabelEditorPayload payload;
     private final List<Item> allItems;
+    private final List<String> filterEntries;
     private EditBox search;
-    private MultiLineEditBox filters;
+    private EditBox filterInput;
     private Button applyButton;
     private ResourceLocation selectedIcon;
     private boolean alwaysShow;
     private int itemOffset;
+    private int suggestionOffset;
+    private int filterOffset;
     private Component validationMessage = CommonComponents.EMPTY;
+    private ItemStack hoveredStack = ItemStack.EMPTY;
+    private ResourceLocation hoveredItemId;
 
     public StorageLabelScreen(OpenLabelEditorPayload payload) {
         super(Component.translatable("screen.mobsstorage.label.title"));
         this.payload = payload;
         this.selectedIcon = payload.data().configured() ? payload.data().icon() : null;
         this.alwaysShow = payload.data().alwaysShow();
+        this.filterEntries = new ArrayList<>(payload.data().filters());
         this.allItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
                 .sorted(Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString()))
@@ -52,57 +60,105 @@ public final class StorageLabelScreen extends Screen {
 
     @Override
     protected void init() {
-        int left = left();
+        int left = panelLeft();
+        int columnWidth = columnWidth();
         this.search = addRenderableWidget(new EditBox(
-                this.font, left, 26, contentWidth(), 20,
+                this.font, left, 28, columnWidth, 20,
                 Component.translatable("screen.mobsstorage.label.search")
         ));
         this.search.setHint(Component.translatable("screen.mobsstorage.label.search"));
         this.search.setResponder(value -> itemOffset = 0);
 
-        int filterY = gridY() + GRID_ROWS * CELL + 18;
-        this.filters = addRenderableWidget(new MultiLineEditBox(
-                this.font, left, filterY, contentWidth(), 58,
-                Component.translatable("screen.mobsstorage.label.filter_hint"),
-                Component.translatable("screen.mobsstorage.label.filters")
+        int inputWidth = Math.max(50, columnWidth - 54);
+        this.filterInput = addRenderableWidget(new EditBox(
+                this.font, rightColumnLeft(), 50, inputWidth, 20,
+                Component.translatable("screen.mobsstorage.label.filter_input")
         ));
-        this.filters.setCharacterLimit(4096);
-        this.filters.setValue(String.join("\n", payload.data().filters()));
-        this.filters.setValueListener(value -> updateValidation());
+        this.filterInput.setMaxLength(256);
+        this.filterInput.setHint(Component.translatable("screen.mobsstorage.label.filter_input_hint"));
+        this.filterInput.setResponder(value -> {
+            suggestionOffset = 0;
+            updateValidation();
+        });
+        addRenderableWidget(Button.builder(
+                Component.translatable("screen.mobsstorage.label.add"), button -> commitInput()
+        ).bounds(rightColumnLeft() + inputWidth + 4, 50, 50, 20).build());
 
-        int controlsY = filterY + 64;
+        int footerY = footerY();
+        int alwaysWidth = Math.min(130, Math.max(90, panelWidth() / 3));
+        int actionWidth = Math.min(80, Math.max(54, (panelWidth() - alwaysWidth - 16) / 2));
         addRenderableWidget(CycleButton.onOffBuilder(alwaysShow).create(
-                left, controlsY, 130, 20,
+                left, footerY, alwaysWidth, 20,
                 Component.translatable("screen.mobsstorage.label.always_show"),
                 (button, value) -> alwaysShow = value
         ));
         this.applyButton = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.apply"), button -> apply()
-        ).bounds(left + contentWidth() - 164, controlsY, 80, 20).build());
+        ).bounds(left + panelWidth() - actionWidth * 2 - 4, footerY, actionWidth, 20).build());
         addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.cancel"), button -> onClose()
-        ).bounds(left + contentWidth() - 80, controlsY, 80, 20).build());
+        ).bounds(left + panelWidth() - actionWidth, footerY, actionWidth, 20).build());
+        clampOffsets();
         updateValidation();
     }
 
     private void apply() {
+        if (!filterInput.getValue().isBlank() && !commitInput()) {
+            return;
+        }
+        updateValidation();
         if (selectedIcon == null || !validationMessage.equals(CommonComponents.EMPTY)) {
             return;
         }
-        List<String> normalized = FilterRules.normalize(filters.getValue());
         PacketDistributor.sendToServer(new SaveLabelPayload(
-                payload.pos(), selectedIcon, normalized, payload.data().face(), alwaysShow
+                payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), alwaysShow
         ));
         onClose();
+    }
+
+    private boolean commitInput() {
+        String entry = filterInput.getValue().trim();
+        if (entry.isEmpty()) {
+            return true;
+        }
+        Optional<Component> error = FilterRules.validate(List.of(entry));
+        if (error.isPresent() || filterEntries.size() >= FilterRules.MAX_FILTERS) {
+            updateValidation();
+            return false;
+        }
+        if (!filterEntries.contains(entry)) {
+            filterEntries.add(entry);
+        }
+        filterInput.setValue("");
+        filterOffset = Math.max(0, filterEntries.size() - visibleFilterRows());
+        updateValidation();
+        return true;
+    }
+
+    private void addSuggestion(String suggestion) {
+        if (filterEntries.size() < FilterRules.MAX_FILTERS && !filterEntries.contains(suggestion)) {
+            filterEntries.add(suggestion);
+            filterOffset = Math.max(0, filterEntries.size() - visibleFilterRows());
+        }
+        filterInput.setValue("");
+        updateValidation();
     }
 
     private void updateValidation() {
         if (selectedIcon == null) {
             validationMessage = Component.translatable("screen.mobsstorage.label.choose_icon");
         } else {
-            validationMessage = FilterRules.validateIcon(selectedIcon)
-                    .or(() -> FilterRules.validate(FilterRules.normalize(filters == null ? "" : filters.getValue())))
-                    .orElse(CommonComponents.EMPTY);
+            Optional<Component> error = FilterRules.validateIcon(selectedIcon)
+                    .or(() -> FilterRules.validate(filterEntries));
+            if (error.isEmpty() && filterInput != null && !filterInput.getValue().isBlank()) {
+                error = FilterRules.validate(List.of(filterInput.getValue().trim()));
+            }
+            if (error.isEmpty() && filterEntries.size() >= FilterRules.MAX_FILTERS
+                    && filterInput != null && !filterInput.getValue().isBlank()) {
+                error = Optional.of(Component.translatable(
+                        "screen.mobsstorage.label.invalid_entry", "too many entries"));
+            }
+            validationMessage = error.orElse(CommonComponents.EMPTY);
         }
         if (applyButton != null) {
             applyButton.active = validationMessage.equals(CommonComponents.EMPTY);
@@ -112,48 +168,144 @@ public final class StorageLabelScreen extends Screen {
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
-        graphics.drawCenteredString(font, title, width / 2, 9, 0xFFFFFF);
-        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.filters"), left(), gridY() + GRID_ROWS * CELL + 7, 0xD8D8D8, false);
+        int left = panelLeft();
+        int right = left + panelWidth();
+        graphics.fill(left - 6, 5, right + 6, footerY() + 25, 0xB0101010);
+        graphics.renderOutline(left - 6, 5, panelWidth() + 12, footerY() + 20, 0xFF686868);
+        graphics.drawCenteredString(font, title, width / 2, 10, 0xFFFFFF);
+
+        renderSelectedIcon(graphics);
         renderItemGrid(graphics, mouseX, mouseY);
+        renderSuggestions(graphics, mouseX, mouseY);
+        renderFilterList(graphics, mouseX, mouseY);
+
         if (!validationMessage.equals(CommonComponents.EMPTY)) {
-            graphics.drawString(font, validationMessage, left(), height - 13, 0xFF7777, false);
+            String message = font.plainSubstrByWidth(validationMessage.getString(), panelWidth());
+            graphics.drawString(font, message, left, footerY() - 11, 0xFFFF7777, false);
         }
         super.render(graphics, mouseX, mouseY, partialTick);
+        if (!hoveredStack.isEmpty()) {
+            graphics.renderTooltip(font,
+                    List.of(hoveredStack.getHoverName(), Component.literal(hoveredItemId.toString())),
+                    Optional.empty(), mouseX, mouseY);
+        }
+    }
+
+    private void renderSelectedIcon(GuiGraphics graphics) {
+        int x = rightColumnLeft();
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.selected_icon"), x, 29, 0xD8D8D8, false);
+        if (selectedIcon == null) {
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.label.none"), x + 78, 29, 0xAAAAAA, false);
+            return;
+        }
+        Item item = BuiltInRegistries.ITEM.get(selectedIcon);
+        graphics.renderFakeItem(item.getDefaultInstance(), x + 76, 24);
+        String name = font.plainSubstrByWidth(item.getDescription().getString(), Math.max(30, columnWidth() - 98));
+        graphics.drawString(font, name, x + 96, 29, 0xFFFFFF, false);
     }
 
     private void renderItemGrid(GuiGraphics graphics, int mouseX, int mouseY) {
+        hoveredStack = ItemStack.EMPTY;
+        hoveredItemId = null;
         List<Item> items = filteredItems();
+        int columns = gridColumns();
+        int slots = columns * gridRows();
         int start = Math.min(itemOffset, Math.max(0, items.size() - 1));
-        for (int visible = 0; visible < GRID_COLUMNS * GRID_ROWS; visible++) {
+        for (int visible = 0; visible < slots; visible++) {
             int index = start + visible;
-            int x = left() + (visible % GRID_COLUMNS) * CELL;
-            int y = gridY() + (visible / GRID_COLUMNS) * CELL;
-            graphics.fill(x, y, x + 18, y + 18, 0xAA171717);
+            int x = panelLeft() + (visible % columns) * CELL;
+            int y = gridY() + (visible / columns) * CELL;
+            graphics.fill(x, y, x + CELL - 2, y + CELL - 2, 0xDD202020);
+            graphics.renderOutline(x, y, CELL - 2, CELL - 2, 0xFF444444);
             if (index >= items.size()) {
                 continue;
             }
             Item item = items.get(index);
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
             if (id.equals(selectedIcon)) {
-                graphics.renderOutline(x, y, 18, 18, 0xFFFFFFFF);
+                graphics.fill(x, y, x + CELL - 2, y + CELL - 2, 0xFF4A5E73);
+                graphics.renderOutline(x, y, CELL - 2, CELL - 2, 0xFFFFFFFF);
+            } else if (mouseX >= x && mouseX < x + CELL - 2 && mouseY >= y && mouseY < y + CELL - 2) {
+                graphics.fill(x + 1, y + 1, x + CELL - 3, y + CELL - 3, 0x665A7A96);
             }
             ItemStack stack = item.getDefaultInstance();
-            graphics.renderItem(stack, x + 1, y + 1);
-            if (mouseX >= x && mouseX < x + 18 && mouseY >= y && mouseY < y + 18) {
-                graphics.renderTooltip(font, List.of(stack.getHoverName(), Component.literal(id.toString())), Optional.empty(), mouseX, mouseY);
+            graphics.renderFakeItem(stack, x + 3, y + 3);
+            if (mouseX >= x && mouseX < x + CELL - 2 && mouseY >= y && mouseY < y + CELL - 2) {
+                hoveredStack = stack;
+                hoveredItemId = id;
             }
+        }
+    }
+
+    private void renderSuggestions(GuiGraphics graphics, int mouseX, int mouseY) {
+        int x = rightColumnLeft();
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.suggested_tags"), x, 77, 0xD8D8D8, false);
+        List<String> suggestions = matchingSuggestions();
+        if (suggestions.isEmpty()) {
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.label.no_suggestions"), x, suggestionsY() + 4, 0x888888, false);
+            return;
+        }
+        int end = Math.min(suggestions.size(), suggestionOffset + SUGGESTION_ROWS);
+        for (int index = suggestionOffset; index < end; index++) {
+            int y = suggestionsY() + (index - suggestionOffset) * SUGGESTION_ROW_HEIGHT;
+            boolean hovered = inside(mouseX, mouseY, x, y, columnWidth(), SUGGESTION_ROW_HEIGHT - 1);
+            graphics.fill(x, y, x + columnWidth(), y + SUGGESTION_ROW_HEIGHT - 1,
+                    hovered ? 0xCC34516A : 0xAA242424);
+            String label = font.plainSubstrByWidth("+ " + suggestions.get(index), columnWidth() - 6);
+            graphics.drawString(font, label, x + 3, y + 4, hovered ? 0xFFFFFF : 0xD7E9F6, false);
+        }
+    }
+
+    private void renderFilterList(GuiGraphics graphics, int mouseX, int mouseY) {
+        int x = rightColumnLeft();
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.label.current_filters"), x, filterLabelY(), 0xD8D8D8, false);
+        if (filterEntries.isEmpty()) {
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.label.no_filters"), x, filterListY() + 5, 0x888888, false);
+            return;
+        }
+        int end = Math.min(filterEntries.size(), filterOffset + visibleFilterRows());
+        for (int index = filterOffset; index < end; index++) {
+            int y = filterListY() + (index - filterOffset) * FILTER_ROW_HEIGHT;
+            graphics.fill(x, y, x + columnWidth(), y + FILTER_ROW_HEIGHT - 2, 0xBB242424);
+            String entry = font.plainSubstrByWidth(filterEntries.get(index), columnWidth() - 24);
+            graphics.drawString(font, entry, x + 4, y + 6, 0xEEEEEE, false);
+            boolean removeHovered = inside(mouseX, mouseY, x + columnWidth() - 20, y, 20, FILTER_ROW_HEIGHT - 2);
+            graphics.fill(x + columnWidth() - 20, y, x + columnWidth(), y + FILTER_ROW_HEIGHT - 2,
+                    removeHovered ? 0xFF9B3C3C : 0xCC4D2A2A);
+            graphics.drawCenteredString(font, "x", x + columnWidth() - 10, y + 5, 0xFFFFFF);
         }
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0 && insideGrid(mouseX, mouseY)) {
-            int column = (int) (mouseX - left()) / CELL;
+            int column = (int) (mouseX - panelLeft()) / CELL;
             int row = (int) (mouseY - gridY()) / CELL;
-            int index = itemOffset + row * GRID_COLUMNS + column;
+            int index = itemOffset + row * gridColumns() + column;
             List<Item> items = filteredItems();
             if (index >= 0 && index < items.size()) {
                 selectedIcon = BuiltInRegistries.ITEM.getKey(items.get(index));
+                suggestionOffset = 0;
+                updateValidation();
+                return true;
+            }
+        }
+        if (button == 0 && insideSuggestions(mouseX, mouseY)) {
+            int row = (int) (mouseY - suggestionsY()) / SUGGESTION_ROW_HEIGHT;
+            int index = suggestionOffset + row;
+            List<String> suggestions = matchingSuggestions();
+            if (index >= 0 && index < suggestions.size()) {
+                addSuggestion(suggestions.get(index));
+                return true;
+            }
+        }
+        if (button == 0 && insideFilterList(mouseX, mouseY)) {
+            int row = (int) (mouseY - filterListY()) / FILTER_ROW_HEIGHT;
+            int index = filterOffset + row;
+            if (index >= 0 && index < filterEntries.size()
+                    && mouseX >= rightColumnLeft() + columnWidth() - 20) {
+                filterEntries.remove(index);
+                clampOffsets();
                 updateValidation();
                 return true;
             }
@@ -163,12 +315,41 @@ public final class StorageLabelScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        int direction = -(int) Math.signum(scrollY);
         if (insideGrid(mouseX, mouseY)) {
-            int max = Math.max(0, filteredItems().size() - GRID_COLUMNS * GRID_ROWS);
-            itemOffset = Math.max(0, Math.min(max, itemOffset - (int) Math.signum(scrollY) * GRID_COLUMNS));
+            int max = Math.max(0, filteredItems().size() - gridColumns() * gridRows());
+            itemOffset = Math.max(0, Math.min(max, itemOffset + direction * gridColumns()));
+            return true;
+        }
+        if (insideSuggestions(mouseX, mouseY)) {
+            int max = Math.max(0, matchingSuggestions().size() - SUGGESTION_ROWS);
+            suggestionOffset = Math.max(0, Math.min(max, suggestionOffset + direction));
+            return true;
+        }
+        if (insideFilterList(mouseX, mouseY)) {
+            int max = Math.max(0, filterEntries.size() - visibleFilterRows());
+            filterOffset = Math.max(0, Math.min(max, filterOffset + direction));
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (filterInput != null && filterInput.isFocused()) {
+            if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
+                return commitInput();
+            }
+            if (keyCode == InputConstants.KEY_TAB) {
+                List<String> suggestions = matchingSuggestions();
+                if (!suggestions.isEmpty()) {
+                    filterInput.setValue(suggestions.get(Math.min(suggestionOffset, suggestions.size() - 1)));
+                    filterInput.moveCursorToEnd(false);
+                    return true;
+                }
+            }
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     private List<Item> filteredItems() {
@@ -179,28 +360,112 @@ public final class StorageLabelScreen extends Screen {
         List<Item> result = new ArrayList<>();
         for (Item item : allItems) {
             ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
-            if (id.toString().contains(query) || item.getDescription().getString().toLowerCase(Locale.ROOT).contains(query)) {
+            if (id.toString().contains(query)
+                    || item.getDescription().getString().toLowerCase(Locale.ROOT).contains(query)) {
                 result.add(item);
             }
         }
         return result;
     }
 
+    private List<String> matchingSuggestions() {
+        if (selectedIcon == null) {
+            return List.of();
+        }
+        Item item = BuiltInRegistries.ITEM.get(selectedIcon);
+        String query = filterInput == null ? "" : filterInput.getValue().trim().toLowerCase(Locale.ROOT);
+        return item.getDefaultInstance().getTags()
+                .map(tag -> "#" + tag.location())
+                .filter(tag -> !filterEntries.contains(tag))
+                .filter(tag -> query.isEmpty() || tag.toLowerCase(Locale.ROOT).contains(query))
+                .sorted(Comparator
+                        .comparingInt(StorageLabelScreen::tagPriority)
+                        .thenComparing(String::toString))
+                .toList();
+    }
+
+    private static int tagPriority(String tag) {
+        if (tag.startsWith("#c:")) {
+            return 0;
+        }
+        if (tag.startsWith("#minecraft:")) {
+            return 1;
+        }
+        return 2;
+    }
+
+    private void clampOffsets() {
+        itemOffset = Math.max(0, itemOffset);
+        suggestionOffset = Math.max(0, Math.min(suggestionOffset,
+                Math.max(0, matchingSuggestions().size() - SUGGESTION_ROWS)));
+        filterOffset = Math.max(0, Math.min(filterOffset,
+                Math.max(0, filterEntries.size() - visibleFilterRows())));
+    }
+
     private boolean insideGrid(double mouseX, double mouseY) {
-        return mouseX >= left() && mouseX < left() + GRID_COLUMNS * CELL
-                && mouseY >= gridY() && mouseY < gridY() + GRID_ROWS * CELL;
+        return inside(mouseX, mouseY, panelLeft(), gridY(), gridColumns() * CELL, gridRows() * CELL);
     }
 
-    private int contentWidth() {
-        return GRID_COLUMNS * CELL;
+    private boolean insideSuggestions(double mouseX, double mouseY) {
+        return inside(mouseX, mouseY, rightColumnLeft(), suggestionsY(), columnWidth(),
+                SUGGESTION_ROWS * SUGGESTION_ROW_HEIGHT);
     }
 
-    private int left() {
-        return (width - contentWidth()) / 2;
+    private boolean insideFilterList(double mouseX, double mouseY) {
+        return inside(mouseX, mouseY, rightColumnLeft(), filterListY(), columnWidth(),
+                visibleFilterRows() * FILTER_ROW_HEIGHT);
+    }
+
+    private static boolean inside(double mouseX, double mouseY, int x, int y, int width, int height) {
+        return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
+    }
+
+    private int panelWidth() {
+        return Math.max(260, Math.min(PANEL_MAX_WIDTH, width - 16));
+    }
+
+    private int panelLeft() {
+        return (width - panelWidth()) / 2;
+    }
+
+    private int columnWidth() {
+        return (panelWidth() - PANEL_GAP) / 2;
+    }
+
+    private int rightColumnLeft() {
+        return panelLeft() + columnWidth() + PANEL_GAP;
+    }
+
+    private int gridColumns() {
+        return Math.max(1, columnWidth() / CELL);
+    }
+
+    private int gridRows() {
+        return Math.max(1, (footerY() - gridY() - 2) / CELL);
     }
 
     private int gridY() {
-        return 50;
+        return 52;
+    }
+
+    private int suggestionsY() {
+        return 88;
+    }
+
+    private int filterLabelY() {
+        return suggestionsY() + SUGGESTION_ROWS * SUGGESTION_ROW_HEIGHT + 5;
+    }
+
+    private int filterListY() {
+        return filterLabelY() + 13;
+    }
+
+    private int visibleFilterRows() {
+        return Math.max(1, (footerY() - filterListY() - 14) / FILTER_ROW_HEIGHT);
+    }
+
+    private int footerY() {
+        return height - 26;
     }
 
     @Override
