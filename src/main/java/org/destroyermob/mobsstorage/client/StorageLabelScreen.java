@@ -172,6 +172,10 @@ public final class StorageLabelScreen extends Screen {
         int right = left + panelWidth();
         graphics.fill(left - 6, 5, right + 6, footerY() + 25, 0xB0101010);
         graphics.renderOutline(left - 6, 5, panelWidth() + 12, footerY() + 20, 0xFF686868);
+
+        // Render widgets first so UI-blur mods finish their post-processing before
+        // the item models and labels are drawn in the final, crisp foreground pass.
+        super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawCenteredString(font, title, width / 2, 10, 0xFFFFFF);
 
         renderSelectedIcon(graphics);
@@ -183,7 +187,6 @@ public final class StorageLabelScreen extends Screen {
             String message = font.plainSubstrByWidth(validationMessage.getString(), panelWidth());
             graphics.drawString(font, message, left, footerY() - 11, 0xFFFF7777, false);
         }
-        super.render(graphics, mouseX, mouseY, partialTick);
         if (!hoveredStack.isEmpty()) {
             graphics.renderTooltip(font,
                     List.of(hoveredStack.getHoverName(), Component.literal(hoveredItemId.toString())),
