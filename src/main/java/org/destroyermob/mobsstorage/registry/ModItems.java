@@ -24,6 +24,16 @@ public final class ModItems {
             () -> new BlockItem(ModBlocks.NETWORK_INTERFACE.get(), new Item.Properties())
     );
 
+    public static final Supplier<BlockItem> NETWORK_INPUT = ITEMS.register(
+            ModBlocks.NETWORK_INPUT_ID,
+            () -> new BlockItem(ModBlocks.NETWORK_INPUT.get(), new Item.Properties())
+    );
+
+    public static final Supplier<BlockItem> NETWORK_OUTPUT = ITEMS.register(
+            ModBlocks.NETWORK_OUTPUT_ID,
+            () -> new BlockItem(ModBlocks.NETWORK_OUTPUT.get(), new Item.Properties())
+    );
+
     private ModItems() {
     }
 

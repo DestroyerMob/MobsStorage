@@ -56,6 +56,8 @@ public final class MobsStorage {
             event.accept(ModItems.STORAGE_LABEL.get());
             event.accept(ModItems.NETWORK_WAND.get());
             event.accept(ModItems.NETWORK_INTERFACE.get());
+            event.accept(ModItems.NETWORK_INPUT.get());
+            event.accept(ModItems.NETWORK_OUTPUT.get());
         }
     }
 }

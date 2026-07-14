@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    { "item": "mobsstorage:network_interface" },
+    { "item": "minecraft:hopper" },
+    { "item": "minecraft:orange_dye" }
+  ],
+  "result": {
+    "id": "mobsstorage:network_output",
+    "count": 1
+  }
+}

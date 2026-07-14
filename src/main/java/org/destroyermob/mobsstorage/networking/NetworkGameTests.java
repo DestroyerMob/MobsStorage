@@ -38,6 +38,7 @@ import org.destroyermob.mobsstorage.storage.StorageResolver;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
+import org.destroyermob.mobsstorage.world.NetworkPortBlockEntity;
 
 @GameTestHolder(MobsStorage.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -152,42 +153,63 @@ public final class NetworkGameTests {
         ItemStack result = recipe.assemble(input, helper.getLevel().registryAccess());
         helper.assertTrue(result.is(ModItems.NETWORK_INTERFACE.get()),
                 "Four pearls, four crying obsidian, and a crafting table did not produce a Network Interface");
+
+        CraftingRecipe inputRecipe = (CraftingRecipe) helper.getLevel().getRecipeManager()
+                .byKey(MobsStorage.id("network_input")).orElseThrow().value();
+        ItemStack inputResult = inputRecipe.assemble(CraftingInput.of(2, 2, List.of(
+                new ItemStack(ModItems.NETWORK_INTERFACE.get()), new ItemStack(Items.HOPPER),
+                new ItemStack(Items.BLUE_DYE), ItemStack.EMPTY)), helper.getLevel().registryAccess());
+        helper.assertTrue(inputResult.is(ModItems.NETWORK_INPUT.get()), "Input recipe did not produce a Network Input");
+
+        CraftingRecipe outputRecipe = (CraftingRecipe) helper.getLevel().getRecipeManager()
+                .byKey(MobsStorage.id("network_output")).orElseThrow().value();
+        ItemStack output = outputRecipe.assemble(CraftingInput.of(2, 2, List.of(
+                new ItemStack(ModItems.NETWORK_INTERFACE.get()), new ItemStack(Items.HOPPER),
+                new ItemStack(Items.ORANGE_DYE), ItemStack.EMPTY)), helper.getLevel().registryAccess());
+        helper.assertTrue(output.is(ModItems.NETWORK_OUTPUT.get()), "Output recipe did not produce a Network Output");
         helper.succeed();
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
     public static void hopperAutosortsThroughFilteredInput(GameTestHelper helper) {
-        helper.setBlock(FIRST, Blocks.CHEST);
+        helper.setBlock(FIRST, ModBlocks.NETWORK_INPUT.get());
         helper.setBlock(SECOND, Blocks.CHEST);
+        helper.setBlock(THIRD, Blocks.CHEST);
         BlockState hopperState = Blocks.HOPPER.defaultBlockState()
                 .setValue(HopperBlock.FACING, Direction.NORTH)
                 .setValue(HopperBlock.ENABLED, true);
         helper.setBlock(HOPPER, hopperState);
-        ChestBlockEntity input = helper.getBlockEntity(FIRST);
-        ChestBlockEntity ingots = helper.getBlockEntity(SECOND);
+        NetworkPortBlockEntity input = helper.getBlockEntity(FIRST);
+        ChestBlockEntity rawMaterials = helper.getBlockEntity(SECOND);
+        ChestBlockEntity ingots = helper.getBlockEntity(THIRD);
         HopperBlockEntity hopper = helper.getBlockEntity(HOPPER);
 
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         StorageNetworkSavedData data = StorageNetworkSavedData.get(helper.getLevel().getServer());
         StorageNetwork network = data.create(player.getUUID(), "Automation Network");
         GlobalPos inputPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
-        GlobalPos ingotsPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
+        GlobalPos rawPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
+        GlobalPos ingotsPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(THIRD));
         network.addNode(inputPos);
+        network.addNode(rawPos);
         network.addNode(ingotsPos);
-        network.updateNode(inputPos, "Raw Materials", 0, LabelData.AIR);
+        network.updateNode(inputPos, "Machine Input", 0, MobsStorage.id("network_input"));
+        network.updateNode(rawPos, "Raw Materials", 0, LabelData.AIR);
         network.updateNode(ingotsPos, "Ingots", 0, LabelData.AIR);
         data.changed();
         input.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
-                network.id(), "Raw Materials", 0, helper.absolutePos(FIRST)));
+                network.id(), "Machine Input", 0, helper.absolutePos(FIRST)));
+        rawMaterials.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Raw Materials", 0, helper.absolutePos(SECOND)));
         ingots.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
-                network.id(), "Ingots", 0, helper.absolutePos(SECOND)));
-        StorageResolver.setLabel(helper.getLevel(), List.of(input),
-                label(helper.absolutePos(FIRST), "#c:raw_materials"));
+                network.id(), "Ingots", 0, helper.absolutePos(THIRD)));
+        StorageResolver.setLabel(helper.getLevel(), List.of(rawMaterials),
+                label(helper.absolutePos(SECOND), "#c:raw_materials"));
         StorageResolver.setLabel(helper.getLevel(), List.of(ingots),
-                label(helper.absolutePos(SECOND), "#c:ingots"));
+                label(helper.absolutePos(THIRD), "#c:ingots"));
 
-        for (int slot = 0; slot < input.getContainerSize(); slot++) {
-            input.setItem(slot, new ItemStack(Items.RAW_IRON, 64));
+        for (int slot = 0; slot < rawMaterials.getContainerSize(); slot++) {
+            rawMaterials.setItem(slot, new ItemStack(Items.RAW_IRON, 64));
         }
         hopper.setItem(0, new ItemStack(Items.IRON_INGOT));
         HopperBlockEntity.pushItemsTick(
@@ -196,15 +218,30 @@ public final class NetworkGameTests {
         helper.assertTrue(hopper.getItem(0).isEmpty(), "Hopper did not send the ingot into the network");
         helper.assertTrue(ingots.getItem(0).is(Items.IRON_INGOT),
                 "Hopper-routed ingot did not reach the matching filtered storage");
-        helper.assertTrue(input.getItem(0).is(Items.RAW_IRON),
+        helper.assertTrue(rawMaterials.getItem(0).is(Items.RAW_IRON),
                 "Automation inserted the ingot into the rejecting input storage");
 
         ItemStack directRemainder = HopperBlockEntity.addItem(
-                hopper, input, new ItemStack(Items.GOLD_INGOT), Direction.SOUTH);
-        helper.assertTrue(directRemainder.isEmpty(),
-                "Direct vanilla machine transfer did not enter the storage network");
-        helper.assertTrue(ingots.getItem(1).is(Items.GOLD_INGOT),
-                "Direct vanilla machine transfer did not reach the matching filtered storage");
+                hopper, ingots, new ItemStack(Items.IRON_INGOT), Direction.SOUTH);
+        helper.assertTrue(directRemainder.is(Items.IRON_INGOT),
+                "A linked chest still acted as a network-wide machine input");
+        helper.assertTrue(ingots.getItem(0).getCount() == 1,
+                "Machine input directly modified linked chest storage");
+
+        IItemHandler chestHandler = helper.getLevel().getCapability(
+                Capabilities.ItemHandler.BLOCK, helper.absolutePos(THIRD), Direction.UP);
+        helper.assertTrue(chestHandler != null && chestHandler.getSlots() == 0,
+                "Linked chest still exposed machine item access");
+
+        IItemHandler inputHandler = helper.getLevel().getCapability(
+                Capabilities.ItemHandler.BLOCK, helper.absolutePos(FIRST), Direction.UP);
+        helper.assertTrue(inputHandler != null && inputHandler.getSlots() == 1,
+                "Network Input did not expose its one-way machine capability");
+        ItemStack capabilityRemainder = inputHandler.insertItem(0, new ItemStack(Items.GOLD_INGOT, 2), false);
+        helper.assertTrue(capabilityRemainder.isEmpty() && ingots.getItem(1).getCount() == 2,
+                "Network Input capability did not sort items into filtered storage");
+        helper.assertTrue(inputHandler.extractItem(0, 1, false).isEmpty(),
+                "Network Input unexpectedly allowed machine extraction");
 
         hopper.setCooldown(0);
         hopper.setItem(0, new ItemStack(Items.STICK));
@@ -216,11 +253,66 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void networkInterfaceIsBidirectionalOrigin(GameTestHelper helper) {
+    public static void networkOutputOnlyExtractsFromNetwork(GameTestHelper helper) {
+        helper.setBlock(FIRST, ModBlocks.NETWORK_OUTPUT.get());
+        helper.setBlock(SECOND, Blocks.CHEST);
+        NetworkPortBlockEntity output = helper.getBlockEntity(FIRST);
+        ChestBlockEntity storage = helper.getBlockEntity(SECOND);
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        StorageNetwork network = StorageNetworkSavedData.get(helper.getLevel().getServer())
+                .create(player.getUUID(), "Output Network");
+        GlobalPos outputPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
+        GlobalPos storagePos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
+        network.addNode(outputPos);
+        network.addNode(storagePos);
+        network.updateNode(outputPos, "Machine Output", 0, MobsStorage.id("network_output"));
+        network.updateNode(storagePos, "Storage", 0, LabelData.AIR);
+        output.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Machine Output", 0, helper.absolutePos(FIRST)));
+        storage.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Storage", 0, helper.absolutePos(SECOND)));
+        storage.setItem(0, new ItemStack(Items.REDSTONE, 5));
+
+        IItemHandler handler = helper.getLevel().getCapability(
+                Capabilities.ItemHandler.BLOCK, helper.absolutePos(FIRST), Direction.DOWN);
+        helper.assertTrue(handler != null, "Network Output did not expose its machine capability");
+        helper.assertTrue(handler.insertItem(0, new ItemStack(Items.DIAMOND), false).is(Items.DIAMOND),
+                "Network Output unexpectedly allowed machine insertion");
+        int redstoneSlot = -1;
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
+            if (handler.getStackInSlot(slot).is(Items.REDSTONE)) {
+                redstoneSlot = slot;
+                break;
+            }
+        }
+        helper.assertTrue(redstoneSlot >= 0, "Network Output did not expose stored items");
+        ItemStack extracted = handler.extractItem(redstoneSlot, 2, false);
+        helper.assertTrue(extracted.is(Items.REDSTONE) && extracted.getCount() == 2,
+                "Network Output did not extract from network storage");
+        helper.assertTrue(storage.getItem(0).getCount() == 3,
+                "Network Output extraction did not remove the stored items");
+
+        BlockPos hopperBelow = FIRST.below();
+        BlockState hopperState = Blocks.HOPPER.defaultBlockState()
+                .setValue(HopperBlock.FACING, Direction.DOWN)
+                .setValue(HopperBlock.ENABLED, true);
+        helper.setBlock(hopperBelow, hopperState);
+        HopperBlockEntity hopper = helper.getBlockEntity(hopperBelow);
+        helper.assertTrue(HopperBlockEntity.suckInItems(helper.getLevel(), hopper),
+                "Vanilla hopper did not pull through the Network Output");
+        helper.assertTrue(hopper.getItem(0).is(Items.REDSTONE) && storage.getItem(0).getCount() == 2,
+                "Hopper output did not transfer exactly one network item");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void networkInterfacesUseSourceRangeAndCraftWithoutDuplication(GameTestHelper helper) {
         helper.setBlock(FIRST, ModBlocks.NETWORK_INTERFACE.get());
         helper.setBlock(SECOND, Blocks.CHEST);
         helper.setBlock(THIRD, Blocks.CHEST);
+        helper.setBlock(HOPPER, ModBlocks.NETWORK_INTERFACE.get());
         NetworkInterfaceBlockEntity terminal = helper.getBlockEntity(FIRST);
+        NetworkInterfaceBlockEntity secondTerminal = helper.getBlockEntity(HOPPER);
         ChestBlockEntity ingots = helper.getBlockEntity(SECOND);
         ChestBlockEntity rawMaterials = helper.getBlockEntity(THIRD);
 
@@ -230,19 +322,24 @@ public final class NetworkGameTests {
         StorageNetworkSavedData data = StorageNetworkSavedData.get(helper.getLevel().getServer());
         StorageNetwork network = data.create(player.getUUID(), "Interface Network");
         GlobalPos terminalPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
+        GlobalPos secondTerminalPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(HOPPER));
         GlobalPos ingotsPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
         GlobalPos rawPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(THIRD));
         network.addNode(terminalPos);
+        network.addNode(secondTerminalPos);
         network.addNode(ingotsPos);
         network.addNode(rawPos);
         network.updateNode(terminalPos, "Network Interface", 0, MobsStorage.id("network_interface"));
+        network.updateNode(secondTerminalPos, "Second Interface", 0, MobsStorage.id("network_interface"));
         network.updateNode(ingotsPos, "Ingots", 0, LabelData.AIR);
         network.updateNode(rawPos, "Raw Materials", 0, LabelData.AIR);
-        network.setOrigin(terminalPos);
+        network.setOrigin(ingotsPos);
         data.changed();
 
         terminal.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Network Interface", 0, helper.absolutePos(FIRST)));
+        secondTerminal.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Second Interface", 0, helper.absolutePos(HOPPER)));
         ingots.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Ingots", 0, helper.absolutePos(SECOND)));
         rawMaterials.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
@@ -253,29 +350,17 @@ public final class NetworkGameTests {
                 label(helper.absolutePos(THIRD), "#c:raw_materials"));
         rawMaterials.setItem(0, new ItemStack(Items.RAW_IRON, 5));
 
-        IItemHandler handler = helper.getLevel().getCapability(
+        IItemHandler interfaceHandler = helper.getLevel().getCapability(
                 Capabilities.ItemHandler.BLOCK, helper.absolutePos(FIRST), Direction.UP);
-        helper.assertTrue(handler != null, "Network Interface did not expose its registered item capability");
-        ItemStack remainder = handler.insertItem(handler.getSlots() - 1, new ItemStack(Items.IRON_INGOT, 3), false);
-        helper.assertTrue(remainder.isEmpty(), "Network Interface did not accept an automated input");
-        helper.assertTrue(ingots.getItem(0).is(Items.IRON_INGOT) && ingots.getItem(0).getCount() == 3,
-                "Network Interface input did not route to the matching whitelist");
-
-        int rawSlot = -1;
-        for (int slot = 0; slot < handler.getSlots(); slot++) {
-            if (handler.getStackInSlot(slot).is(Items.RAW_IRON)) {
-                rawSlot = slot;
-                break;
-            }
-        }
-        helper.assertTrue(rawSlot >= 0, "Network Interface did not expose combined network contents");
-        ItemStack extracted = handler.extractItem(rawSlot, 2, false);
-        helper.assertTrue(extracted.is(Items.RAW_IRON) && extracted.getCount() == 2,
-                "Network Interface did not provide automated output");
-        helper.assertTrue(rawMaterials.getItem(0).getCount() == 3,
-                "Network Interface output did not remove items from network storage");
+        helper.assertTrue(interfaceHandler == null,
+                "Network Interface still exposed network-wide machine automation");
         helper.assertTrue(NetworkService.canUseTerminal(player, terminal),
-                "Network Interface origin did not authorize its crafting terminal");
+                "Interface within source range could not open its crafting terminal");
+        helper.assertTrue(NetworkService.canUseTerminal(player, secondTerminal),
+                "A second linked interface within source range was not functional");
+        helper.assertFalse(NetworkService.withinOriginRange(network, GlobalPos.of(
+                        helper.getLevel().dimension(), ingotsPos.pos().offset(NetworkRefillService.RANGE + 1, 0, 0))),
+                "Interface source range extended beyond 256 blocks");
 
         NetworkTerminalMenu menu = new NetworkTerminalMenu(7, player.getInventory(), terminal);
         int visibleRawSlot = -1;
@@ -285,12 +370,12 @@ public final class NetworkGameTests {
                 break;
             }
         }
-        helper.assertTrue(visibleRawSlot >= 0 && menu.getSlot(visibleRawSlot).getItem().getCount() == 3,
+        helper.assertTrue(visibleRawSlot >= 0 && menu.getSlot(visibleRawSlot).getItem().getCount() == 5,
                 "Crafting terminal did not display the combined network inventory");
 
         menu.setCarried(new ItemStack(Items.GOLD_INGOT, 2));
         menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
-        helper.assertTrue(menu.getCarried().isEmpty() && ingots.getItem(1).is(Items.GOLD_INGOT),
+        helper.assertTrue(menu.getCarried().isEmpty() && count(Items.GOLD_INGOT, ingots) == 2,
                 "Crafting terminal did not deposit carried items through network routing");
 
         visibleRawSlot = -1;
@@ -301,17 +386,21 @@ public final class NetworkGameTests {
             }
         }
         helper.assertTrue(visibleRawSlot >= 0, "Raw iron disappeared after the terminal inventory refreshed");
-        menu.quickMoveStack(player, visibleRawSlot);
-        helper.assertTrue(player.getInventory().countItem(Items.RAW_IRON) == 3,
-                "Shift-clicking network storage did not move the stack into the player inventory");
-        helper.assertTrue(menu.getSlot(NetworkTerminalMenu.CRAFT_START).getItem().isEmpty(),
-                "Shift-clicking network storage incorrectly filled the crafting grid");
-        helper.assertTrue(rawMaterials.getItem(0).isEmpty(),
-                "Shift-clicked items were not removed from network storage");
+        menu.setCarried(ItemStack.EMPTY);
+        menu.clicked(visibleRawSlot, 0, ClickType.PICKUP, player);
+        helper.assertTrue(menu.getCarried().is(Items.RAW_IRON) && menu.getCarried().getCount() == 5,
+                "Terminal did not explicitly extract the displayed aggregate stack");
+        menu.clicked(NetworkTerminalMenu.CRAFT_START, 0, ClickType.PICKUP, player);
+        helper.assertTrue(menu.getSlot(NetworkTerminalMenu.CRAFT_START).getItem().getCount() == 5,
+                "Extracted network item did not enter the crafting grid");
         menu.removed(player);
+        helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 5,
+                "Closing the terminal duplicated items pulled into the crafting grid");
 
         ingots.clearContent();
         rawMaterials.clearContent();
+        StorageResolver.clearLabel(helper.getLevel(), List.of(ingots));
+        StorageResolver.clearLabel(helper.getLevel(), List.of(rawMaterials));
         List<ItemStack> distinctItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
                 .limit(46)
@@ -323,17 +412,30 @@ public final class NetworkGameTests {
         }
         NetworkTerminalMenu scrollMenu = new NetworkTerminalMenu(8, player.getInventory(), terminal);
         ItemStack firstVisible = scrollMenu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().copy();
+        ItemStack offPage = scrollMenu.getSlot(NetworkTerminalMenu.INGREDIENT_INDEX_START).getItem().copy();
         helper.assertTrue(scrollMenu.maxScrollRows() == 1,
                 "Forty-six item types did not create one additional scroll row");
-        helper.assertTrue(scrollMenu.clickMenuButton(
+        helper.assertTrue(!offPage.isEmpty(),
+                "Off-page network contents were not exposed to crafting recipe transfer");
+        scrollMenu.setCarried(ItemStack.EMPTY);
+        scrollMenu.clicked(NetworkTerminalMenu.INGREDIENT_INDEX_START, 0, ClickType.PICKUP, player);
+        helper.assertTrue(ItemStack.isSameItemSameComponents(offPage, scrollMenu.getCarried()),
+                "Crafting transfer index could not pull an off-page network item");
+        scrollMenu.clicked(NetworkTerminalMenu.CRAFT_START, 0, ClickType.PICKUP, player);
+        scrollMenu.removed(player);
+        helper.assertTrue(countAll(ingots, rawMaterials) == 46,
+                "Off-page crafting transfer duplicated or lost a network item");
+
+        NetworkTerminalMenu pageMenu = new NetworkTerminalMenu(9, player.getInventory(), terminal);
+        helper.assertTrue(pageMenu.clickMenuButton(
                         player, NetworkTerminalMenu.SCROLL_TO_BUTTON_BASE + 1),
                 "Terminal rejected a direct scrollbar row request");
-        helper.assertTrue(scrollMenu.scrollRow() == 1,
+        helper.assertTrue(pageMenu.scrollRow() == 1,
                 "Terminal did not move its aggregate inventory by one row");
         helper.assertTrue(!ItemStack.isSameItemSameComponents(firstVisible,
-                        scrollMenu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem()),
+                        pageMenu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem()),
                 "Scrolled terminal inventory did not replace the first visible row");
-        scrollMenu.removed(player);
+        pageMenu.removed(player);
         helper.succeed();
     }
 
@@ -376,5 +478,26 @@ public final class NetworkGameTests {
     private static LabelData label(BlockPos anchor, String filter) {
         return new LabelData(net.minecraft.resources.ResourceLocation.withDefaultNamespace("diamond"),
                 List.of(filter), Direction.NORTH, LabelDisplayMode.SURFACE, false, anchor);
+    }
+
+    private static int count(net.minecraft.world.item.Item item, ChestBlockEntity... containers) {
+        int total = 0;
+        for (ChestBlockEntity container : containers) {
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                ItemStack stack = container.getItem(slot);
+                if (stack.is(item)) total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    private static int countAll(ChestBlockEntity... containers) {
+        int total = 0;
+        for (ChestBlockEntity container : containers) {
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                total += container.getItem(slot).getCount();
+            }
+        }
+        return total;
     }
 }

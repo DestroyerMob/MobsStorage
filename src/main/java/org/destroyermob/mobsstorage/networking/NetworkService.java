@@ -253,11 +253,18 @@ public final class NetworkService {
             return;
         }
         GlobalPos terminalPos = GlobalPos.of(level.dimension(), node.get().anchor());
-        if (network.get().origin().filter(terminalPos::equals).isEmpty()) {
-            message(player, "block.mobsstorage.network_interface.not_origin");
+        if (network.get().origin().isEmpty()) {
+            message(player, "block.mobsstorage.network_interface.no_source");
             return;
         }
-        player.openMenu(terminal, pos);
+        if (!withinOriginRange(network.get(), terminalPos)) {
+            message(player, "block.mobsstorage.network_interface.out_of_range");
+            return;
+        }
+        player.openMenu(terminal, buffer -> {
+            buffer.writeBlockPos(pos);
+            buffer.writeVarInt(NetworkInventoryService.networkSlotCount(terminal));
+        });
     }
 
     public static boolean canUseTerminal(Player player, NetworkInterfaceBlockEntity terminal) {
@@ -268,7 +275,16 @@ public final class NetworkService {
         Optional<StorageNetwork> network = StorageNetworkSavedData.get(serverPlayer.server).get(node.get().networkId())
                 .filter(value -> value.isMember(player.getUUID()));
         GlobalPos pos = GlobalPos.of(serverPlayer.serverLevel().dimension(), node.get().anchor());
-        return network.flatMap(StorageNetwork::origin).filter(pos::equals).isPresent();
+        return network.filter(value -> withinOriginRange(value, pos)).isPresent();
+    }
+
+    static boolean withinOriginRange(StorageNetwork network, GlobalPos endpoint) {
+        return network.origin()
+                .filter(origin -> origin.dimension().equals(endpoint.dimension()))
+                .filter(origin -> Math.abs(origin.pos().getX() - endpoint.pos().getX()) <= NetworkRefillService.RANGE)
+                .filter(origin -> Math.abs(origin.pos().getY() - endpoint.pos().getY()) <= NetworkRefillService.RANGE)
+                .filter(origin -> Math.abs(origin.pos().getZ() - endpoint.pos().getZ()) <= NetworkRefillService.RANGE)
+                .isPresent();
     }
 
     private static void setOrigin(
@@ -458,6 +474,12 @@ public final class NetworkService {
     private static ResourceLocation nodeIcon(ServerLevel level, BlockPos pos) {
         if (level.getBlockState(pos).is(ModBlocks.NETWORK_INTERFACE.get())) {
             return BuiltInRegistries.ITEM.getKey(ModItems.NETWORK_INTERFACE.get());
+        }
+        if (level.getBlockState(pos).is(ModBlocks.NETWORK_INPUT.get())) {
+            return BuiltInRegistries.ITEM.getKey(ModItems.NETWORK_INPUT.get());
+        }
+        if (level.getBlockState(pos).is(ModBlocks.NETWORK_OUTPUT.get())) {
+            return BuiltInRegistries.ITEM.getKey(ModItems.NETWORK_OUTPUT.get());
         }
         return StorageResolver.findLabel(level, pos).map(LabelData::icon).orElse(LabelData.AIR);
     }

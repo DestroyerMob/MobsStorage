@@ -18,12 +18,15 @@ final class NetworkTerminalView implements Container {
     static final int VISIBLE_ROWS = 5;
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
+    private final NonNullList<ItemStack> ingredientItems;
+    private final Container ingredientIndex = new IngredientIndex();
     @Nullable private final NetworkInterfaceBlockEntity endpoint;
     private int scrollRow;
     private int maxScrollRows;
 
-    NetworkTerminalView(@Nullable NetworkInterfaceBlockEntity endpoint) {
+    NetworkTerminalView(@Nullable NetworkInterfaceBlockEntity endpoint, int ingredientIndexSize) {
         this.endpoint = endpoint;
+        this.ingredientItems = NonNullList.withSize(Math.max(0, ingredientIndexSize), ItemStack.EMPTY);
         refresh();
     }
 
@@ -47,8 +50,18 @@ final class NetworkTerminalView implements Container {
         int totalRows = (flattened.size() + COLUMNS - 1) / COLUMNS;
         maxScrollRows = Math.max(0, totalRows - VISIBLE_ROWS);
         scrollRow = Math.min(scrollRow, maxScrollRows);
+        int visibleStart = scrollRow * COLUMNS;
+        int hiddenSlot = 0;
+        for (int index = 0; index < flattened.size() && hiddenSlot < ingredientItems.size(); index++) {
+            if (index < visibleStart || index >= visibleStart + VISIBLE_SIZE) {
+                ingredientItems.set(hiddenSlot++, flattened.get(index));
+            }
+        }
+        while (hiddenSlot < ingredientItems.size()) {
+            ingredientItems.set(hiddenSlot++, ItemStack.EMPTY);
+        }
         for (int slot = 0; slot < VISIBLE_SIZE; slot++) {
-            int index = scrollRow * COLUMNS + slot;
+            int index = visibleStart + slot;
             items.set(slot, index < flattened.size() ? flattened.get(index) : ItemStack.EMPTY);
         }
     }
@@ -64,6 +77,10 @@ final class NetworkTerminalView implements Container {
 
     int maxScrollRows() {
         return maxScrollRows;
+    }
+
+    Container ingredientIndex() {
+        return ingredientIndex;
     }
 
     @Override public int getContainerSize() { return VISIBLE_SIZE; }
@@ -98,7 +115,9 @@ final class NetworkTerminalView implements Container {
             items.set(slot, stack);
             return;
         }
-        if (!stack.isEmpty()) NetworkInventoryService.insertAutomated(endpoint, stack, false);
+        // Aggregate network slots are display-only. All deposits are handled by
+        // NetworkTerminalMenu so vanilla slot bookkeeping cannot write a shown
+        // stack back into storage and duplicate it.
         refresh();
     }
 
@@ -122,5 +141,32 @@ final class NetworkTerminalView implements Container {
             this.sample = sample;
             this.count = count;
         }
+    }
+
+    private final class IngredientIndex implements Container {
+        @Override public int getContainerSize() { return ingredientItems.size(); }
+        @Override public boolean isEmpty() { return ingredientItems.stream().allMatch(ItemStack::isEmpty); }
+        @Override public ItemStack getItem(int slot) { return ingredientItems.get(slot); }
+
+        @Override
+        public ItemStack removeItem(int slot, int amount) {
+            if (endpoint == null) return ContainerHelper.removeItem(ingredientItems, slot, amount);
+            ItemStack shown = ingredientItems.get(slot);
+            ItemStack extracted = NetworkInventoryService.extractMatching(endpoint, shown, amount, false);
+            refresh();
+            return extracted;
+        }
+
+        @Override public ItemStack removeItemNoUpdate(int slot) { return removeItem(slot, getItem(slot).getCount()); }
+
+        @Override
+        public void setItem(int slot, ItemStack stack) {
+            if (endpoint == null) ingredientItems.set(slot, stack);
+            else refresh();
+        }
+
+        @Override public void setChanged() { }
+        @Override public boolean stillValid(Player player) { return NetworkTerminalView.this.stillValid(player); }
+        @Override public void clearContent() { if (endpoint == null) ingredientItems.clear(); }
     }
 }

@@ -105,6 +105,10 @@ public final class NetworkInventoryService {
                 .toList();
     }
 
+    public static int networkSlotCount(Container endpoint) {
+        return automatedSlots(endpoint).orElse(List.of()).size();
+    }
+
     public static ItemStack extractMatching(
             Container endpoint, ItemStack template, int amount, boolean simulate
     ) {
@@ -120,6 +124,17 @@ public final class NetworkInventoryService {
             }
         }
         return moved == 0 ? ItemStack.EMPTY : template.copyWithCount(moved);
+    }
+
+    public static ItemStack extractFirst(Container endpoint, int amount, boolean simulate) {
+        if (amount <= 0) return ItemStack.EMPTY;
+        for (StorageSlot slot : automatedSlots(endpoint).orElse(List.of())) {
+            ItemStack stored = slot.stack();
+            if (stored.isEmpty()) continue;
+            int moved = Math.min(amount, Math.min(stored.getCount(), stored.getMaxStackSize()));
+            return simulate ? stored.copyWithCount(moved) : slot.container().removeItem(slot.slot(), moved);
+        }
+        return ItemStack.EMPTY;
     }
 
     static Optional<List<StorageSlot>> automatedSlots(Container endpoint) {

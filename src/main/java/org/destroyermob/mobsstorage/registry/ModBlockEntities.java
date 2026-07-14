@@ -7,6 +7,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
+import org.destroyermob.mobsstorage.world.NetworkPortBlockEntity;
 
 public final class ModBlockEntities {
     private static final DeferredRegister<BlockEntityType<?>> TYPES =
@@ -16,6 +17,13 @@ public final class ModBlockEntities {
             ModBlocks.NETWORK_INTERFACE_ID,
             () -> BlockEntityType.Builder.of(
                     NetworkInterfaceBlockEntity::new, ModBlocks.NETWORK_INTERFACE.get()).build(null)
+    );
+
+    public static final Supplier<BlockEntityType<NetworkPortBlockEntity>> NETWORK_PORT = TYPES.register(
+            "network_port",
+            () -> BlockEntityType.Builder.of(
+                    NetworkPortBlockEntity::new,
+                    ModBlocks.NETWORK_INPUT.get(), ModBlocks.NETWORK_OUTPUT.get()).build(null)
     );
 
     private ModBlockEntities() {

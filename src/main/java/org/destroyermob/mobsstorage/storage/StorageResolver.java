@@ -17,6 +17,7 @@ import org.destroyermob.mobsstorage.mixin.CompoundContainerAccessor;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModTags;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
+import org.destroyermob.mobsstorage.world.NetworkPortBlockEntity;
 
 public final class StorageResolver {
     private StorageResolver() {
@@ -28,12 +29,13 @@ public final class StorageResolver {
     }
 
     public static boolean networkEligible(Level level, BlockPos pos) {
-        return eligible(level, pos) || level.getBlockEntity(pos) instanceof NetworkInterfaceBlockEntity;
+        return eligible(level, pos) || level.getBlockEntity(pos) instanceof NetworkInterfaceBlockEntity
+                || level.getBlockEntity(pos) instanceof NetworkPortBlockEntity;
     }
 
     public static List<BlockEntity> logicalStorage(Level level, BlockPos pos) {
         BlockEntity first = level.getBlockEntity(pos);
-        if (first instanceof NetworkInterfaceBlockEntity) {
+        if (first instanceof NetworkInterfaceBlockEntity || first instanceof NetworkPortBlockEntity) {
             return List.of(first);
         }
         if (!(first instanceof Container) || !level.getBlockState(pos).is(ModTags.LABELABLE_STORAGE)) {

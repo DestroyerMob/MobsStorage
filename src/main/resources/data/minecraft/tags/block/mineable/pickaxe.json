@@ -1,6 +1,8 @@
 {
   "replace": false,
   "values": [
-    "mobsstorage:network_interface"
+    "mobsstorage:network_interface",
+    "mobsstorage:network_input",
+    "mobsstorage:network_output"
   ]
 }

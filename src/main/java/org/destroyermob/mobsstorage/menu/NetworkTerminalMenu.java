@@ -1,6 +1,7 @@
 package org.destroyermob.mobsstorage.menu;
 
 import java.util.Optional;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.server.level.ServerPlayer;
@@ -40,6 +41,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     public static final int PLAYER_END = PLAYER_START + 27;
     public static final int HOTBAR_START = PLAYER_END;
     public static final int HOTBAR_END = HOTBAR_START + 9;
+    public static final int INGREDIENT_INDEX_START = HOTBAR_END;
 
     private final NetworkTerminalView network;
     private final CraftingContainer craftSlots = new TransientCraftingContainer(this, 3, 3);
@@ -50,21 +52,28 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     @Nullable private final NetworkInterfaceBlockEntity terminal;
 
     public NetworkTerminalMenu(int containerId, Inventory playerInventory, RegistryFriendlyByteBuf data) {
+        this(containerId, playerInventory, readClientData(data));
+    }
+
+    private NetworkTerminalMenu(int containerId, Inventory playerInventory, ClientData data) {
         this(containerId, playerInventory, null,
-                ContainerLevelAccess.create(playerInventory.player.level(), data.readBlockPos()));
+                ContainerLevelAccess.create(playerInventory.player.level(), data.pos()), data.ingredientSlots());
     }
 
     public NetworkTerminalMenu(int containerId, Inventory playerInventory, NetworkInterfaceBlockEntity terminal) {
-        this(containerId, playerInventory, terminal, ContainerLevelAccess.create(terminal.getLevel(), terminal.getBlockPos()));
+        this(containerId, playerInventory, terminal,
+                ContainerLevelAccess.create(terminal.getLevel(), terminal.getBlockPos()),
+                NetworkInventoryService.networkSlotCount(terminal));
     }
 
     private NetworkTerminalMenu(int containerId, Inventory playerInventory,
-                                @Nullable NetworkInterfaceBlockEntity terminal, ContainerLevelAccess access) {
+                                @Nullable NetworkInterfaceBlockEntity terminal, ContainerLevelAccess access,
+                                int ingredientSlots) {
         super(ModMenus.NETWORK_TERMINAL.get(), containerId);
         this.player = playerInventory.player;
         this.terminal = terminal;
         this.access = access;
-        this.network = new NetworkTerminalView(terminal);
+        this.network = new NetworkTerminalView(terminal, ingredientSlots);
 
         for (int row = 0; row < 5; row++) {
             for (int column = 0; column < 9; column++) {
@@ -86,6 +95,9 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         }
         for (int column = 0; column < 9; column++) {
             addSlot(new Slot(playerInventory, column, 8 + column * 18, 200));
+        }
+        for (int slot = 0; slot < ingredientSlots; slot++) {
+            addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000));
         }
 
         scrollData.set(0, network.scrollRow());
@@ -158,8 +170,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (terminal != null && slotId >= NETWORK_START && slotId < NETWORK_END
-                && clickType == ClickType.PICKUP && !getCarried().isEmpty()) {
+        if (terminal != null && networkSlot(slotId) && clickType == ClickType.PICKUP && !getCarried().isEmpty()) {
             ItemStack carried = getCarried();
             int requested = button == 1 ? 1 : carried.getCount();
             ItemStack offered = carried.copyWithCount(requested);
@@ -173,6 +184,20 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             }
             return;
         }
+        if (terminal != null && networkSlot(slotId) && clickType == ClickType.PICKUP && getCarried().isEmpty()) {
+            Slot slot = getSlot(slotId);
+            ItemStack shown = slot.getItem();
+            if (!shown.isEmpty()) {
+                int requested = button == 1 ? (shown.getCount() + 1) / 2 : shown.getCount();
+                ItemStack extracted = slot.remove(requested);
+                if (!extracted.isEmpty()) {
+                    setCarried(extracted);
+                    slot.onTake(player, extracted);
+                    broadcastChanges();
+                }
+            }
+            return;
+        }
         super.clicked(slotId, button, clickType, player);
     }
 
@@ -182,9 +207,9 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         Slot slot = slots.get(index);
         if (!slot.hasItem()) return ItemStack.EMPTY;
 
-        if (index >= NETWORK_START && index < NETWORK_END) {
+        if (networkSlot(index)) {
             ItemStack shown = slot.getItem().copy();
-            ItemStack extracted = network.removeItem(index, shown.getCount());
+            ItemStack extracted = slot.remove(shown.getCount());
             if (extracted.isEmpty()) return ItemStack.EMPTY;
             int extractedCount = extracted.getCount();
             moveItemStackTo(extracted, PLAYER_START, HOTBAR_END, true);
@@ -231,6 +256,15 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
                 .orElse(0);
     }
 
+    private boolean networkSlot(int slot) {
+        return slot >= NETWORK_START && slot < NETWORK_END
+                || slot >= INGREDIENT_INDEX_START && slot < slots.size();
+    }
+
+    private static ClientData readClientData(RegistryFriendlyByteBuf data) {
+        return new ClientData(data.readBlockPos(), data.readVarInt());
+    }
+
     private void returnRemainder(ItemStack stack, Player player) {
         if (stack.isEmpty()) return;
         if (terminal != null) {
@@ -265,4 +299,6 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             return false;
         }
     }
+
+    private record ClientData(BlockPos pos, int ingredientSlots) { }
 }

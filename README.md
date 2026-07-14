@@ -14,9 +14,10 @@ Mobs Storage adds configurable storage labels to Minecraft 1.21.1 on NeoForge. A
 - Empty-hand sneak-use edits a label; shears remove and return it.
 - Craft a permanent Network Wand from two sticks and redstone. Use it in air to cycle between Add to Network, Set Network Source, and Configure Storage modes; sneak-use it in air to manage networks.
 - Link storage to one network at a time, name it, assign numeric priorities, choose exactly one origin block for future remote lookup, and manage public/private membership.
-- Manual and automated deposits into linked storage route to matching filtered storage first, then the interacted storage, then normal available storage; priority breaks ties.
-- Craft a Network Interface from a crafting table, four ender pearls, and four crying obsidian. It can join a network as a bidirectional automation endpoint.
-- Set a Network Interface as the network source to open its paged crafting terminal, browse the combined loaded inventory, craft in a 3×3 grid, and move items into or out of the network.
+- Manual deposits into linked storage route to matching filtered storage first, then the interacted storage, then normal available storage; priority breaks ties.
+- Craft a Network Interface from a crafting table, four ender pearls, and four crying obsidian. Every linked interface within 256 blocks on each axis of the network source can open the paged crafting terminal.
+- The terminal browses the combined loaded inventory, crafts in a 3×3 grid, and exposes the whole network inventory to recipe-transfer helpers even when ingredients are off-page.
+- Craft dedicated Network Input and Network Output blocks from an interface, hopper, and blue or orange dye. Machines can only push into the whole network through an Input and pull from it through an Output; linked chests and interfaces no longer expose network-wide automation.
 - Within 256 blocks on each axis of any linked storage, a member automatically receives a replacement stack or tool after the last inventory replacement is consumed or broken. The network origin is not used for refills.
 
 Custom/networked storage systems such as Sophisticated Storage, Tom's Simple Storage, Ender Storage, and Lootr are intentionally outside the first compatibility slice.
