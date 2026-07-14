@@ -24,12 +24,14 @@ public final class ModBlocks {
     public static final Supplier<NetworkPortBlock> NETWORK_INPUT = BLOCKS.register(
             NETWORK_INPUT_ID,
             () -> new NetworkPortBlock(BlockBehaviour.Properties.ofFullCopy(Blocks.CRYING_OBSIDIAN)
+                    .strength(3.0F, 6.0F)
                     .lightLevel(state -> 4))
     );
 
     public static final Supplier<NetworkPortBlock> NETWORK_OUTPUT = BLOCKS.register(
             NETWORK_OUTPUT_ID,
             () -> new NetworkPortBlock(BlockBehaviour.Properties.ofFullCopy(Blocks.CRYING_OBSIDIAN)
+                    .strength(3.0F, 6.0F)
                     .lightLevel(state -> 4))
     );
 
