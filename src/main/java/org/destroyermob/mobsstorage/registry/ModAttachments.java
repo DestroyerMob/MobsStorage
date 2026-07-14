@@ -1,0 +1,27 @@
+package org.destroyermob.mobsstorage.registry;
+
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.attachment.AttachmentType;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.neoforged.neoforge.registries.NeoForgeRegistries;
+import org.destroyermob.mobsstorage.MobsStorage;
+import org.destroyermob.mobsstorage.storage.LabelData;
+
+public final class ModAttachments {
+    private static final DeferredRegister<AttachmentType<?>> TYPES =
+            DeferredRegister.create(NeoForgeRegistries.Keys.ATTACHMENT_TYPES, MobsStorage.MOD_ID);
+
+    public static final DeferredHolder<AttachmentType<?>, AttachmentType<LabelData>> STORAGE_LABEL =
+            TYPES.register("storage_label", () -> AttachmentType.builder(() -> LabelData.EMPTY)
+                    .serialize(LabelData.CODEC, LabelData::configured)
+                    .sync(LabelData.STREAM_CODEC)
+                    .build());
+
+    private ModAttachments() {
+    }
+
+    public static void register(IEventBus bus) {
+        TYPES.register(bus);
+    }
+}

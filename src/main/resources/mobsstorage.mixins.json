@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "org.destroyermob.mobsstorage.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "BaseContainerBlockEntityMixin",
+    "CompoundContainerAccessor",
+    "SlotMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

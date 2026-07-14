@@ -1,0 +1,14 @@
+{
+  "item.mobsstorage.storage_label": "Storage Label",
+  "screen.mobsstorage.label.title": "Storage Label",
+  "screen.mobsstorage.label.search": "Search item icons...",
+  "screen.mobsstorage.label.filters": "Whitelist — one item ID or #item_tag per line",
+  "screen.mobsstorage.label.filter_hint": "minecraft:iron_ingot\n#c:ingots\n#c:gems",
+  "screen.mobsstorage.label.always_show": "Always Show",
+  "screen.mobsstorage.label.apply": "Apply",
+  "screen.mobsstorage.label.cancel": "Cancel",
+  "screen.mobsstorage.label.choose_icon": "Choose an icon",
+  "screen.mobsstorage.label.invalid_item": "Unknown item: %s",
+  "screen.mobsstorage.label.invalid_tag": "Unknown item tag: %s",
+  "screen.mobsstorage.label.invalid_entry": "Invalid entry: %s"
+}
