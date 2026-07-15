@@ -62,7 +62,38 @@ public final class StorageResolver {
     }
 
     public static Optional<LabelData> existingLabel(BlockEntity blockEntity) {
+        return rawLabel(blockEntity).filter(label -> ownsAnchor(blockEntity, label.anchor()));
+    }
+
+    public static Optional<LabelData> rawLabel(BlockEntity blockEntity) {
         return blockEntity.getExistingData(ModAttachments.STORAGE_LABEL).filter(LabelData::configured);
+    }
+
+    public static boolean ownsAnchor(BlockEntity blockEntity, BlockPos anchor) {
+        Level level = blockEntity.getLevel();
+        if (level == null) {
+            return false;
+        }
+        if (blockEntity.getBlockPos().equals(anchor) || !level.isLoaded(anchor)) {
+            return true;
+        }
+        return logicalStorage(level, blockEntity.getBlockPos()).stream()
+                .anyMatch(storage -> storage.getBlockPos().equals(anchor));
+    }
+
+    public static void reconcileLabelTopology(Level level, BlockPos pos) {
+        List<BlockEntity> storage = logicalStorage(level, pos);
+        if (storage.isEmpty()) {
+            return;
+        }
+        List<BlockPos> positions = storage.stream().map(BlockEntity::getBlockPos).toList();
+        for (BlockEntity blockEntity : storage) {
+            Optional<LabelData> label = rawLabel(blockEntity);
+            if (label.isPresent() && level.isLoaded(label.get().anchor())
+                    && !positions.contains(label.get().anchor())) {
+                clearLabel(level, List.of(blockEntity));
+            }
+        }
     }
 
     public static Optional<LabelData> labelFor(Container container) {

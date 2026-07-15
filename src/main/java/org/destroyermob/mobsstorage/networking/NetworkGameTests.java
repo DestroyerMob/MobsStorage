@@ -18,10 +18,12 @@ import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.HopperBlock;
 import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.entity.HopperBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import net.neoforged.neoforge.common.NeoForge;
@@ -138,6 +140,67 @@ public final class NetworkGameTests {
         helper.assertTrue(player.getMainHandItem().is(Items.BREAD)
                         && player.getMainHandItem().getCount() == 16,
                 "Consumed stack with different components was not restored by registered item ID");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void singleDoubleSingleChestTopologyDoesNotKeepStaleAnchors(GameTestHelper helper) {
+        BlockPos first = FIRST;
+        BlockPos second = FIRST.east();
+        BlockState left = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.FACING, Direction.NORTH)
+                .setValue(ChestBlock.TYPE, ChestType.LEFT);
+        BlockState right = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.FACING, Direction.NORTH)
+                .setValue(ChestBlock.TYPE, ChestType.RIGHT);
+        helper.setBlock(first, left);
+        helper.setBlock(second, right);
+        ChestBlockEntity firstChest = helper.getBlockEntity(first);
+        ChestBlockEntity secondChest = helper.getBlockEntity(second);
+        BlockPos anchor = helper.absolutePos(first);
+
+        LabelData label = label(anchor, "#c:ingots");
+        StorageResolver.setLabel(helper.getLevel(), List.of(firstChest, secondChest), label);
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(helper.getLevel().getServer());
+        StorageNetwork network = savedData.create(helper.makeMockServerPlayerInLevel().getUUID(), "Topology Test");
+        GlobalPos networkAnchor = GlobalPos.of(helper.getLevel().dimension(), anchor);
+        network.addNode(networkAnchor);
+        network.setOrigin(networkAnchor);
+        NetworkNodeData node = new NetworkNodeData(network.id(), "Ingots", 4, anchor);
+        firstChest.setData(ModAttachments.NETWORK_NODE, node);
+        secondChest.setData(ModAttachments.NETWORK_NODE, node);
+
+        helper.setBlock(second, Blocks.AIR);
+        helper.setBlock(first, Blocks.CHEST.defaultBlockState());
+        StorageResolver.reconcileLabelTopology(helper.getLevel(), anchor);
+        NetworkService.reconcileTopology(helper.getLevel(), anchor);
+        firstChest = helper.getBlockEntity(first);
+        helper.assertTrue(StorageResolver.existingLabel(firstChest).isPresent(),
+                "The surviving anchor chest lost its label after returning to single");
+        helper.assertTrue(NetworkService.existingNode(firstChest).isPresent(),
+                "The surviving anchor chest lost its network after returning to single");
+
+        helper.setBlock(first, left);
+        helper.setBlock(second, right);
+        firstChest = helper.getBlockEntity(first);
+        secondChest = helper.getBlockEntity(second);
+        StorageResolver.setLabel(helper.getLevel(), List.of(firstChest, secondChest), label);
+        NetworkService.onStorageJoined(helper.getLevel(), anchor);
+        helper.setBlock(first, Blocks.AIR);
+        helper.setBlock(second, Blocks.CHEST.defaultBlockState());
+        BlockPos survivor = helper.absolutePos(second);
+        StorageResolver.reconcileLabelTopology(helper.getLevel(), survivor);
+        NetworkService.reconcileTopology(helper.getLevel(), survivor);
+        secondChest = helper.getBlockEntity(second);
+
+        helper.assertTrue(secondChest.getExistingData(ModAttachments.STORAGE_LABEL).isEmpty(),
+                "The mirrored label retained a missing double-chest anchor");
+        helper.assertTrue(secondChest.getExistingData(ModAttachments.NETWORK_NODE).isEmpty(),
+                "The mirrored network node retained a missing double-chest anchor");
+        helper.assertFalse(network.nodes().contains(networkAnchor),
+                "The network retained the missing double-chest anchor");
+        helper.assertTrue(network.origin().isEmpty(),
+                "The network source retained the missing double-chest anchor");
         helper.succeed();
     }
 

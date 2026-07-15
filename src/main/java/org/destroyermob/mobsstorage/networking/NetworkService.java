@@ -48,7 +48,9 @@ public final class NetworkService {
     }
 
     public static Optional<NetworkNodeData> existingNode(BlockEntity blockEntity) {
-        return blockEntity.getExistingData(ModAttachments.NETWORK_NODE).filter(NetworkNodeData::linked);
+        return blockEntity.getExistingData(ModAttachments.NETWORK_NODE)
+                .filter(NetworkNodeData::linked)
+                .filter(node -> StorageResolver.ownsAnchor(blockEntity, node.anchor()));
     }
 
     public static NetworkNodeData nodeData(BlockEntity blockEntity) {
@@ -210,6 +212,39 @@ public final class NetworkService {
                 .filter(NetworkNodeData::linked).findFirst();
         linked.or(() -> storage.stream().map(NetworkService::nodeData).filter(NetworkNodeData::configured).findFirst())
                 .ifPresent(node -> setNodeData(level, storage, node));
+    }
+
+    public static void reconcileTopology(ServerLevel level, BlockPos pos) {
+        List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
+        if (storage.isEmpty()) return;
+        List<BlockPos> positions = storage.stream().map(BlockEntity::getBlockPos).toList();
+        for (BlockEntity blockEntity : storage) {
+            Optional<NetworkNodeData> attached = blockEntity.getExistingData(ModAttachments.NETWORK_NODE)
+                    .filter(NetworkNodeData::configured);
+            if (attached.isEmpty() || !level.isLoaded(attached.get().anchor())
+                    || positions.contains(attached.get().anchor())) continue;
+            removeStaleNode(level, blockEntity, attached.get());
+        }
+    }
+
+    private static void removeStaleNode(ServerLevel level, BlockEntity blockEntity, NetworkNodeData stale) {
+        blockEntity.removeData(ModAttachments.NETWORK_NODE);
+        blockEntity.setChanged();
+        blockEntity.syncData(ModAttachments.NETWORK_NODE);
+        level.invalidateCapabilities(blockEntity.getBlockPos());
+        if (!stale.linked()) return;
+
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(level.getServer());
+        savedData.get(stale.networkId()).ifPresent(network -> {
+            boolean anchorStillOwnsNode = level.isLoaded(stale.anchor())
+                    && findNode(level, stale.anchor())
+                    .filter(node -> node.networkId().equals(stale.networkId()))
+                    .isPresent();
+            if (!anchorStillOwnsNode
+                    && network.removeNode(GlobalPos.of(level.dimension(), stale.anchor()))) {
+                savedData.changed();
+            }
+        });
     }
 
     public static Optional<StorageNetwork> accessibleNetwork(ServerPlayer player, Container container) {

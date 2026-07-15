@@ -3,6 +3,7 @@ package org.destroyermob.mobsstorage.storage;
 import java.util.List;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
@@ -74,6 +75,7 @@ public final class StorageLabelEvents {
         if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
+        scheduleTopologyReconciliation(level, event.getPos());
         NetworkService.onStorageBroken(level, event.getPos());
         Optional<LabelData> label = StorageResolver.findLabel(level, event.getPos());
         if (label.isEmpty() || !label.get().anchor().equals(event.getPos())) {
@@ -89,15 +91,50 @@ public final class StorageLabelEvents {
         if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
             return;
         }
-        BlockPos pos = event.getPos();
-        level.getServer().execute(() -> {
-            if (StorageResolver.eligible(level, pos)) {
-                List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
-                storage.stream().map(StorageResolver::existingLabel).flatMap(Optional::stream).findFirst()
-                        .ifPresent(label -> StorageResolver.setLabel(level, storage, label));
+        scheduleTopologyReconciliation(level, event.getPos());
+    }
+
+    public static void onNeighborNotify(BlockEvent.NeighborNotifyEvent event) {
+        if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
+            return;
+        }
+        boolean storageNearby = StorageResolver.networkEligible(level, event.getPos());
+        if (!storageNearby) {
+            for (Direction direction : Direction.values()) {
+                if (StorageResolver.networkEligible(level, event.getPos().relative(direction))) {
+                    storageNearby = true;
+                    break;
+                }
             }
-            if (StorageResolver.networkEligible(level, pos)) NetworkService.onStorageJoined(level, pos);
+        }
+        if (!storageNearby) {
+            return;
+        }
+        scheduleTopologyReconciliation(level, event.getPos());
+    }
+
+    private static void scheduleTopologyReconciliation(ServerLevel level, BlockPos changedPos) {
+        BlockPos center = changedPos.immutable();
+        level.getServer().execute(() -> {
+            reconcileAt(level, center);
+            for (Direction direction : Direction.values()) {
+                reconcileAt(level, center.relative(direction));
+            }
         });
+    }
+
+    private static void reconcileAt(ServerLevel level, BlockPos pos) {
+        if (!level.isLoaded(pos) || !StorageResolver.networkEligible(level, pos)) {
+            return;
+        }
+        if (StorageResolver.eligible(level, pos)) {
+            List<BlockEntity> storage = StorageResolver.logicalStorage(level, pos);
+            storage.stream().map(StorageResolver::existingLabel).flatMap(Optional::stream).findFirst()
+                    .ifPresent(label -> StorageResolver.setLabel(level, storage, label));
+            StorageResolver.reconcileLabelTopology(level, pos);
+        }
+        NetworkService.onStorageJoined(level, pos);
+        NetworkService.reconcileTopology(level, pos);
     }
 
     private static void removeLabel(ServerPlayer player, BlockPos pos, ItemStack shears, net.minecraft.world.InteractionHand hand) {
