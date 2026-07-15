@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -30,7 +31,9 @@ public final class InventoryControls {
         add(event, screen, x, y + 110, "D", "screen.mobsstorage.inventory.deposit", InventoryActionPayload.Action.DEPOSIT);
         event.addListener(Button.builder(Component.literal("?"), button -> {})
                 .bounds(x, y + 132, 20, 20)
-                .tooltip(Tooltip.create(Component.translatable("screen.mobsstorage.inventory.shortcuts"))).build());
+                .tooltip(Tooltip.create(Component.translatable(Minecraft.ON_OSX
+                        ? "screen.mobsstorage.inventory.shortcuts_macos"
+                        : "screen.mobsstorage.inventory.shortcuts_other"))).build());
     }
 
     private static void add(ScreenEvent.Init.Post event, AbstractContainerScreen<?> screen, int x, int y,
@@ -41,7 +44,7 @@ public final class InventoryControls {
 
     public static void onKey(ScreenEvent.KeyPressed.Pre event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)
-                || (event.getModifiers() & GLFW.GLFW_MOD_ALT) == 0) return;
+                || !Screen.hasControlDown() && !Screen.hasAltDown()) return;
         Slot slot = screen.getSlotUnderMouse();
         if (slot == null || !(slot.container instanceof Inventory)) return;
         InventoryActionPayload.Action action = switch (event.getKeyCode()) {
