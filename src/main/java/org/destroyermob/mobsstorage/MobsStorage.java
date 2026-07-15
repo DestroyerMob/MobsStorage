@@ -12,6 +12,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.network.ModNetworking;
+import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlockEntities;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
@@ -42,6 +43,7 @@ public final class MobsStorage {
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemDestroyed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemUsed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(InventoryManagementService::onPlayerTick);
 
         if (FMLEnvironment.dist.isClient()) {
             MobsStorageClient.register(modBus);

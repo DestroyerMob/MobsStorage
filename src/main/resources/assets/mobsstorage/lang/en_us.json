@@ -105,5 +105,14 @@
   "screen.mobsstorage.node.owner_only": "Only the network owner can change this storage.",
   "screen.mobsstorage.node.save": "Save",
   "screen.mobsstorage.node.unlink": "Unlink",
-  "screen.mobsstorage.node.close": "Close"
+  "screen.mobsstorage.node.close": "Close",
+  "screen.mobsstorage.inventory.sort_item": "Sort main inventory by item",
+  "screen.mobsstorage.inventory.sort_category": "Sort main inventory by category",
+  "screen.mobsstorage.inventory.sort_quantity": "Sort main inventory by quantity",
+  "screen.mobsstorage.inventory.consolidate": "Consolidate partial stacks",
+  "screen.mobsstorage.inventory.transfer_matching": "Transfer matching items into this container",
+  "screen.mobsstorage.inventory.deposit": "Deposit main inventory (keeps hotbar, favourites, and locked slots)",
+  "screen.mobsstorage.inventory.restock_unavailable": "Configured restock: no nearby network has this item",
+  "screen.mobsstorage.inventory.restock_network": "Restock network: %s",
+  "screen.mobsstorage.inventory.shortcuts": "Slot shortcuts:\nAlt+L — Lock slot\nAlt+F — Favourite item\nAlt+H — Remember hotbar item\nAlt+N — Configure network restock"
 }

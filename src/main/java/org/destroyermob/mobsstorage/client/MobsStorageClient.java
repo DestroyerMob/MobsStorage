@@ -18,6 +18,9 @@ public final class MobsStorageClient {
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::onClientTick);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::render);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::renderHud);
+        NeoForge.EVENT_BUS.addListener(InventoryControls::onInit);
+        NeoForge.EVENT_BUS.addListener(InventoryControls::onKey);
+        NeoForge.EVENT_BUS.addListener(InventoryControls::onRender);
     }
 
     private static void registerMenuScreens(RegisterMenuScreensEvent event) {

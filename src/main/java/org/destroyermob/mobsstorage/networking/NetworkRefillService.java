@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -17,6 +18,8 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerDestroyItemEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.items.IItemHandler;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class NetworkRefillService {
@@ -57,17 +60,18 @@ public final class NetworkRefillService {
 
     static boolean refill(ServerPlayer player, ItemStack original, InteractionHand preferredHand) {
         if (hasReplacement(player, original)) return false;
+        ItemStack carried = extractFromCarriedStorage(player, original);
+        if (!carried.isEmpty()) {
+            placeReplacement(player, carried, preferredHand);
+            return true;
+        }
         StorageNetworkSavedData data = StorageNetworkSavedData.get(player.server);
         for (StorageNetwork network : data.all()) {
             if (!network.isMember(player.getUUID()) || !nearNetwork(player, network)) continue;
             Extracted extracted = extract(player, network, original);
             if (extracted.stack().isEmpty()) continue;
             ItemStack remainder = extracted.stack();
-            if (preferredHand != null && player.getItemInHand(preferredHand).isEmpty()) {
-                player.setItemInHand(preferredHand, remainder.copyAndClear());
-            } else {
-                player.getInventory().add(remainder);
-            }
+            placeReplacement(player, remainder, preferredHand);
             if (!remainder.isEmpty()) {
                 NetworkInventoryService.insertInto(extracted.sourceContainers(), remainder);
             }
@@ -75,6 +79,63 @@ public final class NetworkRefillService {
             return true;
         }
         return false;
+    }
+
+    public static Optional<String> restockSource(ServerPlayer player, ResourceLocation itemId) {
+        ItemStack sample = new ItemStack(BuiltInRegistries.ITEM.get(itemId));
+        if (sample.isEmpty()) return Optional.empty();
+        return StorageNetworkSavedData.get(player.server).all().stream()
+                .filter(network -> network.isMember(player.getUUID()) && nearNetwork(player, network))
+                .filter(network -> contains(player, network, sample))
+                .map(StorageNetwork::name).findFirst();
+    }
+
+    public static boolean refillConfiguredSlot(ServerPlayer player, ResourceLocation itemId, int slot) {
+        if (slot < 0 || slot >= 36 || !player.getInventory().getItem(slot).isEmpty()) return false;
+        ItemStack sample = new ItemStack(BuiltInRegistries.ITEM.get(itemId));
+        for (StorageNetwork network : StorageNetworkSavedData.get(player.server).all()) {
+            if (!network.isMember(player.getUUID()) || !nearNetwork(player, network)) continue;
+            Extracted extracted = extract(player, network, sample);
+            if (!extracted.stack().isEmpty()) {
+                player.getInventory().setItem(slot, extracted.stack());
+                player.getInventory().setChanged();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean contains(ServerPlayer player, StorageNetwork network, ItemStack sample) {
+        for (GlobalPos node : network.nodes()) {
+            ServerLevel level = player.server.getLevel(node.dimension());
+            if (level == null || !level.isLoaded(node.pos())) continue;
+            for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.pos())) {
+                if (!(blockEntity instanceof Container container)) continue;
+                for (int slot = 0; slot < container.getContainerSize(); slot++)
+                    if (sameItemId(sample, container.getItem(slot))) return true;
+            }
+        }
+        return false;
+    }
+
+    private static ItemStack extractFromCarriedStorage(ServerPlayer player, ItemStack original) {
+        for (ItemStack storage : player.getInventory().items) {
+            IItemHandler handler = Capabilities.ItemHandler.ITEM.getCapability(storage, null);
+            if (handler == null) continue;
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack stored = handler.getStackInSlot(slot);
+                if (sameItemId(original, stored)) return handler.extractItem(slot, original.isStackable()
+                        ? stored.getMaxStackSize() : 1, false);
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static void placeReplacement(ServerPlayer player, ItemStack replacement, InteractionHand preferredHand) {
+        if (preferredHand != null && player.getItemInHand(preferredHand).isEmpty())
+            player.setItemInHand(preferredHand, replacement.copyAndClear());
+        else player.getInventory().add(replacement);
+        player.getInventory().setChanged();
     }
 
     private static boolean hasReplacement(ServerPlayer player, ItemStack original) {

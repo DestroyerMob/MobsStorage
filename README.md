@@ -19,6 +19,10 @@ Mobs Storage adds configurable storage labels to Minecraft 1.21.1 on NeoForge. A
 - The terminal browses the combined loaded inventory, crafts in a 3×3 grid, and exposes the whole network inventory to recipe-transfer helpers even when ingredients are off-page.
 - Craft dedicated Network Input and Network Output blocks from an interface, hopper, and blue or orange dye. Machines can only push into the whole network through an Input and pull from it through an Output; linked chests and interfaces no longer expose network-wide automation.
 - Within 256 blocks on each axis of any linked storage, a member automatically receives a replacement stack or tool after the last inventory replacement is consumed or broken. The network origin is not used for refills.
+- Every inventory and container screen includes item, category, and quantity sorting plus consolidate, transfer-matching, and safe-deposit controls. Safe deposit keeps the hotbar, armour, favourite item IDs, and locked slots.
+- Hover a player slot and use `Alt+L` to lock it or `Alt+F` to toggle that item ID as a favourite. Locked and favourite slots are also protected from shift-click quick deposit.
+- Use `Alt+H` over a hotbar slot to remember its current item, or `Alt+N` over any player slot to configure automatic network restocking. Slot markers show the active rules and name a nearby network that can currently supply a configured item.
+- Broken tools check compatible carried item-handler storage for the same registered item ID before falling back to network refill, so durability and other components do not prevent replacement.
 
 Custom/networked storage systems such as Sophisticated Storage, Tom's Simple Storage, Ender Storage, and Lootr are intentionally outside the first compatibility slice.
 

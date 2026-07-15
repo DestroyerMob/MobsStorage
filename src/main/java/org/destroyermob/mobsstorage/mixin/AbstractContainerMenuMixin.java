@@ -5,6 +5,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import org.destroyermob.mobsstorage.networking.NetworkInventoryService;
+import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -16,9 +17,16 @@ public abstract class AbstractContainerMenuMixin {
     private void mobsstorage$routeNetworkInsertion(
             int slotId, int button, ClickType clickType, Player player, CallbackInfo callback
     ) {
-        if (player instanceof ServerPlayer serverPlayer && NetworkInventoryService.handleMenuClick(
-                (AbstractContainerMenu) (Object) this, slotId, button, clickType, serverPlayer)) {
-            callback.cancel();
+        if (player instanceof ServerPlayer serverPlayer) {
+            AbstractContainerMenu menu = (AbstractContainerMenu) (Object) this;
+            if (clickType == ClickType.QUICK_MOVE
+                    && InventoryManagementService.blocksQuickDeposit(serverPlayer, menu, slotId)) {
+                callback.cancel();
+                return;
+            }
+            if (NetworkInventoryService.handleMenuClick(menu, slotId, button, clickType, serverPlayer)) {
+                callback.cancel();
+            }
         }
     }
 }

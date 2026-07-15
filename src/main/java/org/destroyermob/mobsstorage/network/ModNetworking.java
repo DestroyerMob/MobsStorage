@@ -8,6 +8,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
+import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
 import org.destroyermob.mobsstorage.networking.NetworkNodeData;
@@ -15,7 +16,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "3";
+    private static final String NETWORK_VERSION = "4";
 
     private ModNetworking() {
     }
@@ -38,6 +39,7 @@ public final class ModNetworking {
         registrar.playToClient(OpenNetworkNodePayload.TYPE, OpenNetworkNodePayload.STREAM_CODEC, ModNetworking::handleOpenNode);
         registrar.playToServer(NetworkActionPayload.TYPE, NetworkActionPayload.STREAM_CODEC, ModNetworking::handleNetworkAction);
         registrar.playToServer(SaveNetworkNodePayload.TYPE, SaveNetworkNodePayload.STREAM_CODEC, ModNetworking::handleSaveNode);
+        registrar.playToServer(InventoryActionPayload.TYPE, InventoryActionPayload.STREAM_CODEC, ModNetworking::handleInventoryAction);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -71,6 +73,12 @@ public final class ModNetworking {
     private static void handleSaveNode(SaveNetworkNodePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) NetworkService.saveNode(player, payload);
+        });
+    }
+
+    private static void handleInventoryAction(InventoryActionPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) InventoryManagementService.handle(player, payload);
         });
     }
 }

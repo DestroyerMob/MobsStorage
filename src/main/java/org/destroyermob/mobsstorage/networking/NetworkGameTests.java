@@ -1,6 +1,8 @@
 package org.destroyermob.mobsstorage.networking;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Direction;
@@ -9,8 +11,10 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.CompoundContainer;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -18,6 +22,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.HopperBlock;
@@ -33,7 +38,10 @@ import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.items.IItemHandler;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.item.NetworkWandMode;
+import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
+import org.destroyermob.mobsstorage.inventory.InventoryProfile;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
+import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.registry.ModItems;
@@ -258,6 +266,46 @@ public final class NetworkGameTests {
         helper.assertTrue(fromRight.inserted() == 1 && rightChest.getItem(0).is(Items.DIRT),
                 "A right-anchored label did not insert into logical slot zero");
         helper.assertTrue(leftChest.isEmpty(), "A right-anchored insertion unexpectedly used the lower inventory half");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void personalInventoryRulesProtectAndOrganiseItems(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().setItem(0, new ItemStack(Items.TORCH, 8));
+        player.getInventory().setItem(9, new ItemStack(Items.STICK, 3));
+        player.getInventory().setItem(10, new ItemStack(Items.COBBLESTONE, 2));
+        player.getInventory().setItem(11, new ItemStack(Items.DIRT, 40));
+        player.getInventory().setItem(12, new ItemStack(Items.COBBLESTONE, 62));
+        player.getInventory().setItem(13, new ItemStack(Items.DIAMOND, 4));
+        ResourceLocation diamond = BuiltInRegistries.ITEM.getKey(Items.DIAMOND);
+        InventoryProfile profile = new InventoryProfile(Set.of(9), Set.of(diamond),
+                Map.of(), Map.of(), Map.of());
+        profile = InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.CONSOLIDATE, -1, player.containerMenu.containerId), profile);
+        helper.assertTrue(player.getInventory().getItem(9).is(Items.STICK)
+                        && player.getInventory().getItem(9).getCount() == 3,
+                "Consolidation moved a locked slot");
+        helper.assertTrue(player.getInventory().items.stream().anyMatch(stack ->
+                        stack.is(Items.COBBLESTONE) && stack.getCount() == 64),
+                "Consolidation did not merge partial stacks");
+
+        profile = InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SORT_QUANTITY, -1, player.containerMenu.containerId), profile);
+        helper.assertTrue(player.getInventory().getItem(10).is(Items.COBBLESTONE)
+                        && player.getInventory().getItem(10).getCount() == 64,
+                "Quantity sorting did not put the largest stack first");
+
+        SimpleContainer chest = new SimpleContainer(27);
+        player.containerMenu = ChestMenu.threeRows(17, player.getInventory(), chest);
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.DEPOSIT, -1, player.containerMenu.containerId), profile);
+        helper.assertTrue(player.getInventory().getItem(0).is(Items.TORCH), "Deposit moved the protected hotbar");
+        helper.assertTrue(player.getInventory().items.stream().anyMatch(stack -> stack.is(Items.DIAMOND)),
+                "Deposit moved a favourite item");
+        helper.assertTrue(player.getInventory().getItem(9).is(Items.STICK), "Deposit moved a locked slot");
+        helper.assertTrue(chest.hasAnyMatching(stack -> stack.is(Items.COBBLESTONE)),
+                "Deposit did not move ordinary main-inventory items");
         helper.succeed();
     }
 
