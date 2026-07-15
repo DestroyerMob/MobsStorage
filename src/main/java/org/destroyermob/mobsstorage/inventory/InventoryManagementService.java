@@ -23,6 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SwordItem;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.items.SlotItemHandler;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.networking.NetworkInventoryService;
 import org.destroyermob.mobsstorage.networking.NetworkService;
@@ -44,10 +45,10 @@ public final class InventoryManagementService {
             case TOGGLE_FAVOURITE -> profile = toggleFavourite(player, profile, payload.slot());
             case TOGGLE_HOTBAR -> profile = togglePreference(player, profile, payload.slot(), true);
             case TOGGLE_RESTOCK -> profile = togglePreference(player, profile, payload.slot(), false);
-            case SORT_ITEM -> sort(player, profile, Comparator.comparing(InventoryManagementService::itemId));
-            case SORT_CATEGORY -> sort(player, profile, Comparator.comparingInt(InventoryManagementService::category)
+            case SORT_ITEM -> sort(player, profile, payload.slot(), Comparator.comparing(InventoryManagementService::itemId));
+            case SORT_CATEGORY -> sort(player, profile, payload.slot(), Comparator.comparingInt(InventoryManagementService::category)
                     .thenComparing(InventoryManagementService::itemId));
-            case SORT_QUANTITY -> sort(player, profile, Comparator.comparingInt(ItemStack::getCount).reversed()
+            case SORT_QUANTITY -> sort(player, profile, payload.slot(), Comparator.comparingInt(ItemStack::getCount).reversed()
                     .thenComparing(InventoryManagementService::itemId));
             case CONSOLIDATE -> consolidate(player.getInventory(), movableSlots(profile));
             case TRANSFER_MATCHING -> transfer(player, profile, true);
@@ -118,7 +119,14 @@ public final class InventoryManagementService {
                 : new InventoryProfile(profile.lockedSlots(), profile.favourites(), profile.hotbarPreferences(), values, Map.of());
     }
 
-    private static void sort(ServerPlayer player, InventoryProfile profile, Comparator<ItemStack> comparator) {
+    private static void sort(ServerPlayer player, InventoryProfile profile, int hoveredMenuSlot,
+                             Comparator<ItemStack> comparator) {
+        if (hoveredMenuSlot >= 0 && hoveredMenuSlot < player.containerMenu.slots.size()) {
+            sortSlots(player, profile, player.containerMenu.slots.get(hoveredMenuSlot), comparator);
+            return;
+        }
+
+        // Retain the original main-inventory target for server-side callers without a hovered menu slot.
         Inventory inventory = player.getInventory();
         List<Integer> slots = movableSlots(profile);
         consolidate(inventory, slots);
@@ -126,6 +134,88 @@ public final class InventoryManagementService {
                 .sorted(comparator).toList();
         slots.forEach(slot -> inventory.setItem(slot, ItemStack.EMPTY));
         for (int index = 0; index < stacks.size(); index++) inventory.setItem(slots.get(index), stacks.get(index));
+    }
+
+    private static void sortSlots(ServerPlayer player, InventoryProfile profile, Slot hovered,
+                                  Comparator<ItemStack> comparator) {
+        List<Slot> section = player.containerMenu.slots.stream()
+                .filter(slot -> sameInventorySection(hovered, slot))
+                .toList();
+        List<ItemStack> sectionStacks = section.stream().map(Slot::getItem)
+                .filter(stack -> !stack.isEmpty()).toList();
+        List<Slot> sortable = section.stream()
+                .filter(slot -> !isLockedPlayerSlot(player, profile, slot))
+                .filter(slot -> slot.getItem().isEmpty() || slot.mayPickup(player))
+                .filter(slot -> sectionStacks.stream().allMatch(slot::mayPlace))
+                .toList();
+        if (sortable.size() < 2) return;
+
+        List<ItemStack> original = sortable.stream().map(slot -> slot.getItem().copy()).toList();
+        List<ItemStack> ordered = consolidateCopies(original);
+        ordered.sort(comparator);
+        if (!fits(sortable, ordered)) {
+            ordered = original.stream().filter(stack -> !stack.isEmpty()).map(ItemStack::copy)
+                    .sorted(comparator).toList();
+            if (!fits(sortable, ordered)) return;
+        }
+
+        for (int index = 0; index < sortable.size(); index++) {
+            Slot slot = sortable.get(index);
+            slot.set(index < ordered.size() ? ordered.get(index) : ItemStack.EMPTY);
+            slot.setChanged();
+        }
+    }
+
+    private static boolean sameInventorySection(Slot hovered, Slot candidate) {
+        if (hovered.container instanceof Inventory inventory) {
+            return candidate.container == inventory
+                    && playerInventorySection(candidate.getContainerSlot()) == playerInventorySection(hovered.getContainerSlot());
+        }
+        if (hovered instanceof SlotItemHandler hoveredHandler) {
+            return candidate instanceof SlotItemHandler candidateHandler
+                    && candidateHandler.getItemHandler() == hoveredHandler.getItemHandler();
+        }
+        return candidate.container == hovered.container;
+    }
+
+    private static int playerInventorySection(int slot) {
+        if (slot >= 0 && slot <= 8) return 0;
+        if (slot >= 9 && slot <= 35) return 1;
+        if (slot >= 36 && slot <= 39) return 2;
+        if (slot == 40) return 3;
+        return slot + 100;
+    }
+
+    private static boolean isLockedPlayerSlot(ServerPlayer player, InventoryProfile profile, Slot slot) {
+        return slot.container == player.getInventory() && profile.lockedSlots().contains(slot.getContainerSlot());
+    }
+
+    private static List<ItemStack> consolidateCopies(List<ItemStack> original) {
+        List<ItemStack> compact = new ArrayList<>();
+        for (ItemStack originalStack : original) {
+            if (originalStack.isEmpty()) continue;
+            ItemStack remaining = originalStack.copy();
+            for (ItemStack target : compact) {
+                if (!ItemStack.isSameItemSameComponents(target, remaining)
+                        || target.getCount() >= target.getMaxStackSize()) continue;
+                int moved = Math.min(target.getMaxStackSize() - target.getCount(), remaining.getCount());
+                target.grow(moved);
+                remaining.shrink(moved);
+                if (remaining.isEmpty()) break;
+            }
+            if (!remaining.isEmpty()) compact.add(remaining);
+        }
+        return compact;
+    }
+
+    private static boolean fits(List<Slot> slots, List<ItemStack> stacks) {
+        if (stacks.size() > slots.size()) return false;
+        for (int index = 0; index < stacks.size(); index++) {
+            ItemStack stack = stacks.get(index);
+            Slot slot = slots.get(index);
+            if (!slot.mayPlace(stack) || stack.getCount() > slot.getMaxStackSize(stack)) return false;
+        }
+        return true;
     }
 
     private static void consolidate(Inventory inventory, List<Integer> slots) {

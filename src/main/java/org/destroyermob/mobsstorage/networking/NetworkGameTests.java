@@ -17,10 +17,12 @@ import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
+import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.level.block.Blocks;
@@ -36,6 +38,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.ItemStackHandler;
+import net.neoforged.neoforge.items.SlotItemHandler;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.item.NetworkWandMode;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
@@ -307,6 +311,83 @@ public final class NetworkGameTests {
         helper.assertTrue(chest.hasAnyMatching(stack -> stack.is(Items.COBBLESTONE)),
                 "Deposit did not move ordinary main-inventory items");
         helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void sortingTargetsHoveredInventorySectionAndItemHandler(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        SimpleContainer chest = new SimpleContainer(27);
+        chest.setItem(0, new ItemStack(Items.DIRT));
+        chest.setItem(1, new ItemStack(Items.DIAMOND));
+        chest.setItem(2, new ItemStack(Items.COBBLESTONE));
+        ChestMenu chestMenu = ChestMenu.threeRows(18, player.getInventory(), chest);
+        player.containerMenu = chestMenu;
+
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SORT_ITEM, 0, chestMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(chest.getItem(0).is(Items.COBBLESTONE)
+                        && chest.getItem(1).is(Items.DIAMOND) && chest.getItem(2).is(Items.DIRT),
+                "Hover-targeted sorting did not sort the opened chest");
+
+        player.getInventory().setItem(0, new ItemStack(Items.DIRT));
+        player.getInventory().setItem(1, new ItemStack(Items.COBBLESTONE));
+        player.getInventory().setItem(9, new ItemStack(Items.STICK));
+        int hotbarMenuSlot = findMenuSlot(chestMenu, player.getInventory(), 0);
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SORT_ITEM, hotbarMenuSlot, chestMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(player.getInventory().getItem(0).is(Items.COBBLESTONE)
+                        && player.getInventory().getItem(1).is(Items.DIRT),
+                "Hover-targeted sorting did not sort the hotbar independently");
+        helper.assertTrue(player.getInventory().getItem(9).is(Items.STICK),
+                "Hotbar sorting moved an item from the main player inventory");
+
+        ItemStackHandler backpack = new ItemStackHandler(3);
+        backpack.setStackInSlot(0, new ItemStack(Items.DIRT));
+        backpack.setStackInSlot(1, new ItemStack(Items.DIAMOND));
+        backpack.setStackInSlot(2, new ItemStack(Items.COBBLESTONE));
+        ItemStackHandler unrelatedHandler = new ItemStackHandler(2);
+        unrelatedHandler.setStackInSlot(0, new ItemStack(Items.EMERALD));
+        unrelatedHandler.setStackInSlot(1, new ItemStack(Items.STICK));
+        HandlerMenu handlerMenu = new HandlerMenu(19, backpack, unrelatedHandler);
+        player.containerMenu = handlerMenu;
+
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SORT_ITEM, 0, handlerMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(backpack.getStackInSlot(0).is(Items.COBBLESTONE)
+                        && backpack.getStackInSlot(1).is(Items.DIAMOND)
+                        && backpack.getStackInSlot(2).is(Items.DIRT),
+                "Hover-targeted sorting did not sort a NeoForge item-handler inventory");
+        helper.assertTrue(unrelatedHandler.getStackInSlot(0).is(Items.EMERALD)
+                        && unrelatedHandler.getStackInSlot(1).is(Items.STICK),
+                "Item-handler sorting mixed a separate modded inventory into the hovered backpack");
+        helper.succeed();
+    }
+
+    private static int findMenuSlot(AbstractContainerMenu menu, net.minecraft.world.Container container,
+                                    int containerSlot) {
+        for (int index = 0; index < menu.slots.size(); index++) {
+            var slot = menu.slots.get(index);
+            if (slot.container == container && slot.getContainerSlot() == containerSlot) return index;
+        }
+        throw new IllegalStateException("Container slot is not present in menu");
+    }
+
+    private static final class HandlerMenu extends AbstractContainerMenu {
+        private HandlerMenu(int containerId, IItemHandler primary, IItemHandler secondary) {
+            super(null, containerId);
+            for (int slot = 0; slot < primary.getSlots(); slot++) addSlot(new SlotItemHandler(primary, slot, 0, 0));
+            for (int slot = 0; slot < secondary.getSlots(); slot++) addSlot(new SlotItemHandler(secondary, slot, 0, 0));
+        }
+
+        @Override
+        public ItemStack quickMoveStack(Player player, int slot) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return true;
+        }
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)

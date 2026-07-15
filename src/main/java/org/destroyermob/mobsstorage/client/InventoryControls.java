@@ -20,16 +20,16 @@ import java.util.List;
 public final class InventoryControls {
     private static final String CATEGORY = "key.categories.mobsstorage";
     private static final List<ActionBinding> BINDINGS = List.of(
-            binding("sort_item", InventoryActionPayload.Action.SORT_ITEM, false),
-            binding("sort_category", InventoryActionPayload.Action.SORT_CATEGORY, false),
-            binding("sort_quantity", InventoryActionPayload.Action.SORT_QUANTITY, false),
-            binding("consolidate", InventoryActionPayload.Action.CONSOLIDATE, false),
-            binding("transfer_matching", InventoryActionPayload.Action.TRANSFER_MATCHING, false),
-            binding("deposit", InventoryActionPayload.Action.DEPOSIT, false),
-            binding("toggle_lock", InventoryActionPayload.Action.TOGGLE_LOCK, true),
-            binding("toggle_favourite", InventoryActionPayload.Action.TOGGLE_FAVOURITE, true),
-            binding("toggle_hotbar", InventoryActionPayload.Action.TOGGLE_HOTBAR, true),
-            binding("toggle_restock", InventoryActionPayload.Action.TOGGLE_RESTOCK, true)
+            binding("sort_item", InventoryActionPayload.Action.SORT_ITEM, Target.HOVERED_MENU),
+            binding("sort_category", InventoryActionPayload.Action.SORT_CATEGORY, Target.HOVERED_MENU),
+            binding("sort_quantity", InventoryActionPayload.Action.SORT_QUANTITY, Target.HOVERED_MENU),
+            binding("consolidate", InventoryActionPayload.Action.CONSOLIDATE, Target.NONE),
+            binding("transfer_matching", InventoryActionPayload.Action.TRANSFER_MATCHING, Target.NONE),
+            binding("deposit", InventoryActionPayload.Action.DEPOSIT, Target.NONE),
+            binding("toggle_lock", InventoryActionPayload.Action.TOGGLE_LOCK, Target.HOVERED_PLAYER),
+            binding("toggle_favourite", InventoryActionPayload.Action.TOGGLE_FAVOURITE, Target.HOVERED_PLAYER),
+            binding("toggle_hotbar", InventoryActionPayload.Action.TOGGLE_HOTBAR, Target.HOVERED_PLAYER),
+            binding("toggle_restock", InventoryActionPayload.Action.TOGGLE_RESTOCK, Target.HOVERED_PLAYER)
     );
 
     private InventoryControls() {}
@@ -62,24 +62,32 @@ public final class InventoryControls {
 
     private static boolean trigger(AbstractContainerScreen<?> screen, ActionBinding binding) {
         int slotIndex = -1;
-        if (binding.hoveredSlotRequired()) {
+        if (binding.target() != Target.NONE) {
             Slot slot = screen.getSlotUnderMouse();
-            if (slot == null || !(slot.container instanceof Inventory)) return false;
-            slotIndex = slot.getContainerSlot();
+            if (slot == null) return false;
+            if (binding.target() == Target.HOVERED_PLAYER) {
+                if (!(slot.container instanceof Inventory)) return false;
+                slotIndex = slot.getContainerSlot();
+            } else {
+                slotIndex = screen.getMenu().slots.indexOf(slot);
+                if (slotIndex < 0) return false;
+            }
         }
         send(screen, binding.action(), slotIndex);
         return true;
     }
 
     private static ActionBinding binding(String name, InventoryActionPayload.Action action,
-                                         boolean hoveredSlotRequired) {
+                                         Target target) {
         return new ActionBinding(new KeyMapping("key.mobsstorage." + name, InputConstants.Type.KEYSYM,
-                InputConstants.UNKNOWN.getValue(), CATEGORY), action, hoveredSlotRequired);
+                InputConstants.UNKNOWN.getValue(), CATEGORY), action, target);
     }
 
     private record ActionBinding(KeyMapping key, InventoryActionPayload.Action action,
-                                 boolean hoveredSlotRequired) {
+                                 Target target) {
     }
+
+    private enum Target { NONE, HOVERED_MENU, HOVERED_PLAYER }
 
     public static void onRender(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
