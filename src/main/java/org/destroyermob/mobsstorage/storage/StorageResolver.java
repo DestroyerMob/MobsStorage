@@ -1,6 +1,5 @@
 package org.destroyermob.mobsstorage.storage;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
@@ -41,17 +40,17 @@ public final class StorageResolver {
         if (!(first instanceof Container) || !level.getBlockState(pos).is(ModTags.LABELABLE_STORAGE)) {
             return List.of();
         }
-        List<BlockEntity> result = new ArrayList<>();
-        result.add(first);
         BlockState state = level.getBlockState(pos);
         if (first instanceof ChestBlockEntity && state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
             BlockPos otherPos = pos.relative(ChestBlock.getConnectedDirection(state));
             BlockEntity other = level.getBlockEntity(otherPos);
             if (other instanceof ChestBlockEntity && level.getBlockState(otherPos).getBlock() == state.getBlock()) {
-                result.add(other);
+                return state.getValue(ChestBlock.TYPE) == ChestType.RIGHT
+                        ? List.of(first, other)
+                        : List.of(other, first);
             }
         }
-        return List.copyOf(result);
+        return List.of(first);
     }
 
     public static Optional<LabelData> findLabel(Level level, BlockPos pos) {

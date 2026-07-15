@@ -10,6 +10,7 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -201,6 +202,62 @@ public final class NetworkGameTests {
                 "The network retained the missing double-chest anchor");
         helper.assertTrue(network.origin().isEmpty(),
                 "The network source retained the missing double-chest anchor");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void doubleChestInsertionStartsAtLogicalSlotZeroFromEitherAnchor(GameTestHelper helper) {
+        BlockPos leftPos = FIRST;
+        BlockPos rightPos = FIRST.east();
+        BlockState left = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.FACING, Direction.NORTH)
+                .setValue(ChestBlock.TYPE, ChestType.LEFT);
+        BlockState right = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.FACING, Direction.NORTH)
+                .setValue(ChestBlock.TYPE, ChestType.RIGHT);
+        helper.setBlock(leftPos, left);
+        helper.setBlock(rightPos, right);
+        ChestBlockEntity leftChest = helper.getBlockEntity(leftPos);
+        ChestBlockEntity rightChest = helper.getBlockEntity(rightPos);
+        BlockPos leftAnchor = helper.absolutePos(leftPos);
+        BlockPos rightAnchor = helper.absolutePos(rightPos);
+
+        helper.assertTrue(StorageResolver.logicalStorage(helper.getLevel(), leftAnchor).getFirst() == rightChest,
+                "Left-half lookup did not begin with vanilla double-chest slot zero");
+        helper.assertTrue(StorageResolver.logicalStorage(helper.getLevel(), rightAnchor).getFirst() == rightChest,
+                "Right-half lookup did not begin with vanilla double-chest slot zero");
+
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(helper.getLevel().getServer());
+        StorageNetwork network = savedData.create(player.getUUID(), "Double Chest Ordering");
+        GlobalPos leftNodePos = GlobalPos.of(helper.getLevel().dimension(), leftAnchor);
+        network.addNode(leftNodePos);
+        NetworkNodeData leftNode = new NetworkNodeData(network.id(), "Materials", 0, leftAnchor);
+        leftChest.setData(ModAttachments.NETWORK_NODE, leftNode);
+        rightChest.setData(ModAttachments.NETWORK_NODE, leftNode);
+        StorageResolver.setLabel(helper.getLevel(), List.of(leftChest, rightChest), label(leftAnchor, "@minecraft"));
+        CompoundContainer opened = new CompoundContainer(leftChest, rightChest);
+
+        NetworkInventoryService.InsertResult fromLeft = NetworkInventoryService.insert(
+                player, opened, new ItemStack(Items.COBBLESTONE));
+        helper.assertTrue(fromLeft.inserted() == 1 && rightChest.getItem(0).is(Items.COBBLESTONE),
+                "A left-anchored label inserted into its physical half instead of logical slot zero");
+        helper.assertTrue(leftChest.isEmpty(), "A left-anchored insertion unexpectedly used the lower inventory half");
+
+        rightChest.clearContent();
+        network.removeNode(leftNodePos);
+        GlobalPos rightNodePos = GlobalPos.of(helper.getLevel().dimension(), rightAnchor);
+        network.addNode(rightNodePos);
+        NetworkNodeData rightNode = new NetworkNodeData(network.id(), "Materials", 0, rightAnchor);
+        leftChest.setData(ModAttachments.NETWORK_NODE, rightNode);
+        rightChest.setData(ModAttachments.NETWORK_NODE, rightNode);
+        StorageResolver.setLabel(helper.getLevel(), List.of(leftChest, rightChest), label(rightAnchor, "@minecraft"));
+
+        NetworkInventoryService.InsertResult fromRight = NetworkInventoryService.insert(
+                player, opened, new ItemStack(Items.DIRT));
+        helper.assertTrue(fromRight.inserted() == 1 && rightChest.getItem(0).is(Items.DIRT),
+                "A right-anchored label did not insert into logical slot zero");
+        helper.assertTrue(leftChest.isEmpty(), "A right-anchored insertion unexpectedly used the lower inventory half");
         helper.succeed();
     }
 
