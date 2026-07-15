@@ -13,6 +13,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -53,6 +54,8 @@ public final class InventoryManagementService {
             case CONSOLIDATE -> consolidate(player.getInventory(), movableSlots(profile));
             case TRANSFER_MATCHING -> transfer(player, profile, true);
             case DEPOSIT -> transfer(player, profile, false);
+            case SWAP_VERTICAL_SLOT -> swapVerticalSlot(player, payload.slot());
+            case SWAP_HOTBAR -> swapHotbar(player, payload.slot());
         }
         applyHotbarPreferences(player, profile);
         player.getInventory().setChanged();
@@ -250,11 +253,15 @@ public final class InventoryManagementService {
             ItemStack source = inventory.getItem(index);
             if (source.isEmpty() || profile.favourites().contains(BuiltInRegistries.ITEM.getKey(source.getItem()))) continue;
             if (matchingOnly && !matching.contains(BuiltInRegistries.ITEM.getKey(source.getItem()))) continue;
+            int offeredCount = matchingOnly ? source.getCount() : CarryRuleService.depositableCount(player, source);
+            if (offeredCount <= 0) continue;
+            ItemStack offered = source.copyWithCount(offeredCount);
             if (networked) {
-                int inserted = NetworkInventoryService.insert(player, openedContainer, source.copy()).inserted();
+                int inserted = NetworkInventoryService.insert(player, openedContainer, offered).inserted();
                 source.shrink(inserted);
             } else {
-                insertIntoSlots(targets, source);
+                insertIntoSlots(targets, offered);
+                source.shrink(offeredCount - offered.getCount());
             }
             if (source.isEmpty()) inventory.setItem(index, ItemStack.EMPTY);
         }
@@ -289,6 +296,32 @@ public final class InventoryManagementService {
                 }
             }
         });
+    }
+
+    private static void swapVerticalSlot(ServerPlayer player, int target) {
+        Inventory inventory = player.getInventory();
+        int source = inventory.selected;
+        if (source < 0 || source > 8 || target < 9 || target >= 36 || target % 9 != source) return;
+        stopUsingSelectedItem(player);
+        swap(inventory, source, target);
+    }
+
+    private static void swapHotbar(ServerPlayer player, int rowStart) {
+        if (rowStart != 9 && rowStart != 18 && rowStart != 27) return;
+        Inventory inventory = player.getInventory();
+        stopUsingSelectedItem(player);
+        for (int column = 0; column < 9; column++) swap(inventory, column, rowStart + column);
+    }
+
+    private static void stopUsingSelectedItem(ServerPlayer player) {
+        if (player.getUsedItemHand() == InteractionHand.MAIN_HAND) player.stopUsingItem();
+    }
+
+    private static void swap(Inventory inventory, int first, int second) {
+        ItemStack firstStack = inventory.getItem(first);
+        ItemStack secondStack = inventory.getItem(second);
+        inventory.setItem(first, secondStack);
+        inventory.setItem(second, firstStack);
     }
 
     private static List<Integer> movableSlots(InventoryProfile profile) {

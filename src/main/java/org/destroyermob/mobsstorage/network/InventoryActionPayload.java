@@ -15,5 +15,6 @@ public record InventoryActionPayload(Action action, int slot, int containerId) i
         return new InventoryActionPayload(buffer.readEnum(Action.class), buffer.readVarInt() - 1, buffer.readVarInt());
     }
     public enum Action { TOGGLE_LOCK, TOGGLE_FAVOURITE, TOGGLE_HOTBAR, TOGGLE_RESTOCK,
-        SORT_ITEM, SORT_CATEGORY, SORT_QUANTITY, CONSOLIDATE, TRANSFER_MATCHING, DEPOSIT }
+        SORT_ITEM, SORT_CATEGORY, SORT_QUANTITY, CONSOLIDATE, TRANSFER_MATCHING, DEPOSIT,
+        SWAP_VERTICAL_SLOT, SWAP_HOTBAR }
 }

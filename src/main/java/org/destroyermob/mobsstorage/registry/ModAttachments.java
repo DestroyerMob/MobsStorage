@@ -7,6 +7,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
+import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.networking.NetworkNodeData;
 import org.destroyermob.mobsstorage.storage.LabelData;
 
@@ -30,7 +31,14 @@ public final class ModAttachments {
             TYPES.register("inventory_profile", () -> AttachmentType.builder(() -> InventoryProfile.EMPTY)
                     .serialize(InventoryProfile.CODEC, InventoryProfile::configured)
                     .copyOnDeath()
-                    .sync(InventoryProfile.STREAM_CODEC)
+                    .sync((holder, player) -> holder == player, InventoryProfile.STREAM_CODEC)
+                    .build());
+
+    public static final DeferredHolder<AttachmentType<?>, AttachmentType<CarryRuleSet>> CARRY_RULES =
+            TYPES.register("carry_rules", () -> AttachmentType.builder(() -> CarryRuleSet.EMPTY)
+                    .serialize(CarryRuleSet.CODEC, CarryRuleSet::configured)
+                    .copyOnDeath()
+                    .sync((holder, player) -> holder == player, CarryRuleSet.STREAM_CODEC)
                     .build());
 
     private ModAttachments() {

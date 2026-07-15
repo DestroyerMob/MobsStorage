@@ -45,6 +45,8 @@ import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.item.NetworkWandMode;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
+import org.destroyermob.mobsstorage.inventory.CarryRule;
+import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
@@ -384,6 +386,79 @@ public final class NetworkGameTests {
         helper.assertTrue(player.getInventory().getItem(9).is(Items.STICK), "Deposit moved a locked slot");
         helper.assertTrue(chest.hasAnyMatching(stack -> stack.is(Items.COBBLESTONE)),
                 "Deposit did not move ordinary main-inventory items");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void carryRuleRefillPreservesReservedSlots(GameTestHelper helper) {
+        helper.setBlock(FIRST, Blocks.CHEST);
+        ChestBlockEntity chest = helper.getBlockEntity(FIRST);
+        chest.setItem(0, new ItemStack(Items.IRON_INGOT, 64));
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 8));
+        for (int slot = 1; slot < 34; slot++) {
+            player.getInventory().setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+        }
+        BlockPos playerPos = helper.absolutePos(FIRST).above();
+        player.teleportTo(playerPos.getX() + 0.5D, playerPos.getY(), playerPos.getZ() + 0.5D);
+
+        StorageNetworkSavedData data = StorageNetworkSavedData.get(helper.getLevel().getServer());
+        StorageNetwork network = data.create(player.getUUID(), "Carry Rule Test");
+        GlobalPos nodePos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
+        network.addNode(nodePos);
+        data.changed();
+        chest.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Supplies", 0, helper.absolutePos(FIRST)));
+
+        CarryRule rule = new CarryRule("minecraft:iron_ingot", ItemStack.EMPTY, 16, 32, 64);
+        CarryRuleSet rules = new CarryRuleSet(List.of(rule), 2);
+        int inserted = NetworkRefillService.refillCarryRule(player, rules, 0, 24, 2);
+        helper.assertTrue(inserted == 24 && player.getInventory().getItem(0).getCount() == 32,
+                "Carry rule did not top the existing stack up to its target");
+        helper.assertTrue(chest.getItem(0).getCount() == 40,
+                "Carry rule refill removed the wrong amount from network storage");
+        int empty = 0;
+        for (int slot = 0; slot < 36; slot++) if (player.getInventory().getItem(slot).isEmpty()) empty++;
+        helper.assertTrue(empty == 2, "Carry rule refill consumed a reserved empty slot");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void inventoryScrollSwapsSlotsAndWholeHotbars(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().selected = 4;
+        player.getInventory().setItem(4, new ItemStack(Items.TORCH));
+        player.getInventory().setItem(31, new ItemStack(Items.DIAMOND));
+
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SWAP_VERTICAL_SLOT, 31,
+                player.containerMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(player.getInventory().getItem(4).is(Items.DIAMOND)
+                        && player.getInventory().getItem(31).is(Items.TORCH),
+                "Vertical scrolling did not swap the selected hotbar column");
+
+        for (int column = 0; column < 9; column++) {
+            player.getInventory().setItem(column, new ItemStack(Items.STICK));
+            player.getInventory().setItem(18 + column, new ItemStack(Items.COBBLESTONE));
+        }
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SWAP_HOTBAR, 18,
+                player.containerMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(java.util.stream.IntStream.range(0, 9).allMatch(column ->
+                        player.getInventory().getItem(column).is(Items.COBBLESTONE)
+                                && player.getInventory().getItem(18 + column).is(Items.STICK)),
+                "Hotbar scrolling did not swap the complete inventory row");
+
+        player.getInventory().setItem(0, new ItemStack(Items.DIRT));
+        player.getInventory().setItem(9, new ItemStack(Items.APPLE));
+        InventoryProfile locked = new InventoryProfile(Set.of(0), Set.of(), Map.of(), Map.of(), Map.of());
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SWAP_HOTBAR, 9,
+                player.containerMenu.containerId), locked);
+        helper.assertTrue(player.getInventory().getItem(0).is(Items.APPLE)
+                        && player.getInventory().getItem(9).is(Items.DIRT),
+                "A locked slot incorrectly prevented a whole-hotbar scroll");
         helper.succeed();
     }
 

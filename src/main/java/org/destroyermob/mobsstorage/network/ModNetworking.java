@@ -9,6 +9,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
+import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
 import org.destroyermob.mobsstorage.networking.NetworkNodeData;
@@ -16,7 +17,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "4";
+    private static final String NETWORK_VERSION = "6";
 
     private ModNetworking() {
     }
@@ -34,17 +35,27 @@ public final class ModNetworking {
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(NETWORK_VERSION).optional();
         registrar.playToClient(OpenLabelEditorPayload.TYPE, OpenLabelEditorPayload.STREAM_CODEC, ModNetworking::handleOpenEditor);
+        registrar.playToClient(SyncMenuFiltersPayload.TYPE, SyncMenuFiltersPayload.STREAM_CODEC,
+                ModNetworking::handleSyncMenuFilters);
         registrar.playToServer(SaveLabelPayload.TYPE, SaveLabelPayload.STREAM_CODEC, ModNetworking::handleSaveLabel);
         registrar.playToClient(OpenNetworkManagerPayload.TYPE, OpenNetworkManagerPayload.STREAM_CODEC, ModNetworking::handleOpenManager);
         registrar.playToClient(OpenNetworkNodePayload.TYPE, OpenNetworkNodePayload.STREAM_CODEC, ModNetworking::handleOpenNode);
         registrar.playToServer(NetworkActionPayload.TYPE, NetworkActionPayload.STREAM_CODEC, ModNetworking::handleNetworkAction);
         registrar.playToServer(SaveNetworkNodePayload.TYPE, SaveNetworkNodePayload.STREAM_CODEC, ModNetworking::handleSaveNode);
         registrar.playToServer(InventoryActionPayload.TYPE, InventoryActionPayload.STREAM_CODEC, ModNetworking::handleInventoryAction);
+        registrar.playToServer(SaveCarryRulesPayload.TYPE, SaveCarryRulesPayload.STREAM_CODEC,
+                ModNetworking::handleSaveCarryRules);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
         if (FMLEnvironment.dist.isClient()) {
             context.enqueueWork(() -> MobsStorageClient.openEditor(payload));
+        }
+    }
+
+    private static void handleSyncMenuFilters(SyncMenuFiltersPayload payload, IPayloadContext context) {
+        if (FMLEnvironment.dist.isClient()) {
+            context.enqueueWork(() -> MobsStorageClient.syncMenuFilters(payload));
         }
     }
 
@@ -79,6 +90,12 @@ public final class ModNetworking {
     private static void handleInventoryAction(InventoryActionPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) InventoryManagementService.handle(player, payload);
+        });
+    }
+
+    private static void handleSaveCarryRules(SaveCarryRulesPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) CarryRuleService.save(player, payload.rules());
         });
     }
 }

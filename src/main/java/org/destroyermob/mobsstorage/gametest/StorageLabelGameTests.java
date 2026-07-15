@@ -8,7 +8,10 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.CompoundContainer;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -23,11 +26,16 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.destroyermob.mobsstorage.MobsStorage;
+import org.destroyermob.mobsstorage.inventory.CarryRule;
+import org.destroyermob.mobsstorage.inventory.CarryRuleService;
+import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
+import org.destroyermob.mobsstorage.network.SyncMenuFiltersPayload;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
+import org.destroyermob.mobsstorage.storage.StorageMenuFilterSync;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 @GameTestHolder(MobsStorage.MOD_ID)
@@ -82,6 +90,44 @@ public final class StorageLabelGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void carryRulesUseExactComponentsAndSafeDepositMaximums(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        ItemStack namedStick = new ItemStack(Items.STICK, 3);
+        namedStick.set(DataComponents.CUSTOM_NAME, Component.literal("Survey marker"));
+        ItemStack exactSample = namedStick.copyWithCount(1);
+        CarryRule exact = new CarryRule("", exactSample, 1, 1, 1);
+        CarryRule broad = new CarryRule("minecraft:stick", ItemStack.EMPTY, 8, 16, 16);
+        CarryRuleSet rules = new CarryRuleSet(List.of(exact, broad), 0);
+        player.getInventory().setItem(9, namedStick);
+        player.getInventory().setItem(10, new ItemStack(Items.STICK, 20));
+
+        helper.assertTrue(exact.matches(namedStick, Item.TooltipContext.of(helper.getLevel())),
+                "Exact carry rule did not match the captured components");
+        helper.assertFalse(exact.matches(new ItemStack(Items.STICK), Item.TooltipContext.of(helper.getLevel())),
+                "Exact carry rule matched a plain stack with different components");
+        helper.assertTrue(CarryRuleService.depositableCount(player, rules, namedStick) == 2,
+                "Safe deposit did not retain the exact rule maximum");
+        helper.assertTrue(CarryRuleService.depositableCount(player, rules, player.getInventory().getItem(10)) == 4,
+                "Safe deposit did not classify later stacks by first-match priority");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void reservedSlotsAllowMergesButRejectNewPickupStacks(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        for (int slot = 0; slot < 34; slot++) player.getInventory().setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+        player.getInventory().setItem(0, new ItemStack(Items.COBBLESTONE, 60));
+        helper.assertTrue(CarryRuleService.blocksPickup(player.getInventory(), 2, new ItemStack(Items.DIAMOND)),
+                "Reserved empty slots allowed a pickup that needed a new slot");
+        helper.assertFalse(CarryRuleService.blocksPickup(
+                        player.getInventory(), 2, new ItemStack(Items.COBBLESTONE, 4)),
+                "Reserved empty slots blocked a pickup that fit an existing stack");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
     public static void applyingFilterEjectsOnlyDisallowedContents(GameTestHelper helper) {
         helper.setBlock(CHEST, Blocks.CHEST);
         ChestBlockEntity chest = helper.getBlockEntity(CHEST);
@@ -95,6 +141,28 @@ public final class StorageLabelGameTests {
         helper.assertTrue(chest.getItem(0).is(Items.IRON_INGOT), "Allowed ingots were ejected");
         helper.assertTrue(chest.getItem(1).isEmpty(), "Disallowed sticks remained in the chest");
         helper.assertItemEntityCountIs(Items.STICK, CHEST, 1.5D, 2);
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void menuFilterSyncRejectsInvalidItemsBeforeServerCorrection(GameTestHelper helper) {
+        helper.setBlock(CHEST, Blocks.CHEST);
+        ChestBlockEntity chest = helper.getBlockEntity(CHEST);
+        StorageResolver.setLabel(helper.getLevel(), List.of(chest),
+                label(helper.absolutePos(CHEST), List.of("#c:ingots")));
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ChestMenu menu = ChestMenu.threeRows(7, player.getInventory(), chest);
+
+        SyncMenuFiltersPayload payload = StorageMenuFilterSync.createPayload(menu);
+        Item.TooltipContext context = Item.TooltipContext.of(helper.getLevel());
+        helper.assertTrue(payload.groups().size() == 1 && payload.groups().getFirst().slots().size() == 27,
+                "Menu filter sync did not identify every labelled chest slot");
+        helper.assertTrue(payload.allows(0, new ItemStack(Items.IRON_INGOT), context),
+                "Synced menu filter rejected an allowed item");
+        helper.assertFalse(payload.allows(0, new ItemStack(Items.STICK), context),
+                "Synced menu filter accepted a disallowed item");
+        helper.assertTrue(payload.allows(27, new ItemStack(Items.STICK), context),
+                "Synced menu filter leaked into the player's inventory slots");
         helper.succeed();
     }
 
