@@ -52,6 +52,10 @@ public final class NetworkInventoryService {
         return automatedSlots(endpoint).orElse(List.of()).size();
     }
 
+    public static List<StorageSlot> networkStorageSlots(Container endpoint) {
+        return automatedSlots(endpoint).orElse(List.of());
+    }
+
     public static ItemStack extractMatching(
             Container endpoint, ItemStack template, int amount, boolean simulate
     ) {
@@ -226,9 +230,27 @@ public final class NetworkInventoryService {
     }
 
     public record InsertResult(int inserted, ItemStack remainder) {}
-    record StorageSlot(Container container, int slot) {
-        ItemStack stack() {
+    public record StorageSlot(Container container, int slot) {
+        public ItemStack stack() {
             return container.getItem(slot);
+        }
+
+        public ItemStack remove(int amount) {
+            return container.removeItem(slot, amount);
+        }
+
+        public void setFromRecipeTransfer(ItemStack replacement) {
+            ItemStack existing = stack();
+            boolean clearing = replacement.isEmpty();
+            boolean reducing = !clearing && ItemStack.isSameItemSameComponents(existing, replacement)
+                    && replacement.getCount() <= existing.getCount();
+            if (!clearing && !reducing) return;
+            container.setItem(slot, replacement.copy());
+            container.setChanged();
+        }
+
+        public void setChanged() {
+            container.setChanged();
         }
     }
     private record AutomationContext(ServerLevel level, StorageNetwork network, GlobalPos current) {}

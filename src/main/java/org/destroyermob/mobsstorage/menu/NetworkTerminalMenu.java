@@ -77,7 +77,8 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
 
         for (int row = 0; row < 5; row++) {
             for (int column = 0; column < 9; column++) {
-                addSlot(new NetworkSlot(network, column + row * 9, 8 + column * 18, 24 + row * 18));
+                addSlot(new NetworkSlot(network, column + row * 9, 8 + column * 18,
+                        24 + row * 18, false));
             }
         }
 
@@ -97,7 +98,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             addSlot(new Slot(playerInventory, column, 8 + column * 18, 200));
         }
         for (int slot = 0; slot < ingredientSlots; slot++) {
-            addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000));
+            addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000, true));
         }
 
         scrollData.set(0, network.scrollRow());
@@ -290,13 +291,21 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     }
 
     private static final class NetworkSlot extends Slot {
-        private NetworkSlot(Container container, int slot, int x, int y) {
+        private final boolean recipeTransferSource;
+
+        private NetworkSlot(Container container, int slot, int x, int y, boolean recipeTransferSource) {
             super(container, slot, x, y);
+            this.recipeTransferSource = recipeTransferSource;
         }
 
         @Override
         public boolean mayPlace(ItemStack stack) {
             return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return recipeTransferSource;
         }
     }
 

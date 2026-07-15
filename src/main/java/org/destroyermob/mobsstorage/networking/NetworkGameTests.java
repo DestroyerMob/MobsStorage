@@ -25,6 +25,7 @@ import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.HopperBlock;
@@ -445,6 +446,13 @@ public final class NetworkGameTests {
         throw new IllegalStateException("Container slot is not present in menu");
     }
 
+    private static int findSlot(AbstractContainerMenu menu, int start, net.minecraft.world.item.Item item) {
+        for (int index = start; index < menu.slots.size(); index++) {
+            if (menu.getSlot(index).getItem().is(item)) return index;
+        }
+        return -1;
+    }
+
     private static final class HandlerMenu extends AbstractContainerMenu {
         private HandlerMenu(int containerId, IItemHandler primary, IItemHandler secondary) {
             super(null, containerId);
@@ -694,6 +702,8 @@ public final class NetworkGameTests {
         }
         helper.assertTrue(visibleRawSlot >= 0 && menu.getSlot(visibleRawSlot).getItem().getCount() == 5,
                 "Crafting terminal did not display the combined network inventory");
+        helper.assertFalse(menu.getSlot(visibleRawSlot).mayPickup(player),
+                "Recipe transfer could still consume an aggregate display slot");
 
         menu.setCarried(new ItemStack(Items.GOLD_INGOT, 2));
         menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
@@ -719,6 +729,38 @@ public final class NetworkGameTests {
         helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 5,
                 "Closing the terminal duplicated items pulled into the crafting grid");
 
+        NetworkTerminalMenu fullTransferMenu = new NetworkTerminalMenu(21, player.getInventory(), terminal);
+        int physicalRawSlot = findSlot(fullTransferMenu, NetworkTerminalMenu.INGREDIENT_INDEX_START, Items.RAW_IRON);
+        helper.assertTrue(physicalRawSlot >= 0, "Recipe transfer could not see the physical raw-iron network slot");
+        Slot fullSource = fullTransferMenu.getSlot(physicalRawSlot);
+        helper.assertTrue(fullSource.mayPickup(player),
+                "Recipe transfer could not consume a physical network slot");
+        ItemStack fullIngredient = fullSource.getItem().copy();
+        fullSource.setByPlayer(ItemStack.EMPTY);
+        fullSource.onTake(player, fullIngredient);
+        fullTransferMenu.getSlot(NetworkTerminalMenu.CRAFT_START).setByPlayer(fullIngredient);
+        helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 0
+                        && fullTransferMenu.getSlot(NetworkTerminalMenu.CRAFT_START).getItem().getCount() == 5,
+                "Whole-stack recipe transfer filled the crafting grid without removing network items");
+        fullTransferMenu.removed(player);
+        helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 5,
+                "Closing after whole-stack recipe transfer duplicated or lost ingredients");
+
+        NetworkTerminalMenu partialTransferMenu = new NetworkTerminalMenu(22, player.getInventory(), terminal);
+        physicalRawSlot = findSlot(partialTransferMenu, NetworkTerminalMenu.INGREDIENT_INDEX_START, Items.RAW_IRON);
+        Slot partialSource = partialTransferMenu.getSlot(physicalRawSlot);
+        ItemStack originalSource = partialSource.getItem().copy();
+        ItemStack partialIngredient = originalSource.copyWithCount(2);
+        partialSource.getItem().shrink(2);
+        partialSource.onTake(player, originalSource);
+        partialTransferMenu.getSlot(NetworkTerminalMenu.CRAFT_START).setByPlayer(partialIngredient);
+        helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 3
+                        && partialTransferMenu.getSlot(NetworkTerminalMenu.CRAFT_START).getItem().getCount() == 2,
+                "Partial-stack recipe transfer filled the crafting grid without reducing the backing slot");
+        partialTransferMenu.removed(player);
+        helper.assertTrue(count(Items.RAW_IRON, ingots, rawMaterials) == 5,
+                "Closing after partial-stack recipe transfer duplicated or lost ingredients");
+
         ingots.clearContent();
         rawMaterials.clearContent();
         StorageResolver.clearLabel(helper.getLevel(), List.of(ingots));
@@ -734,19 +776,19 @@ public final class NetworkGameTests {
         }
         NetworkTerminalMenu scrollMenu = new NetworkTerminalMenu(8, player.getInventory(), terminal);
         ItemStack firstVisible = scrollMenu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().copy();
-        ItemStack offPage = scrollMenu.getSlot(NetworkTerminalMenu.INGREDIENT_INDEX_START).getItem().copy();
+        ItemStack physicalSource = scrollMenu.getSlot(NetworkTerminalMenu.INGREDIENT_INDEX_START).getItem().copy();
         helper.assertTrue(scrollMenu.maxScrollRows() == 1,
                 "Forty-six item types did not create one additional scroll row");
-        helper.assertTrue(!offPage.isEmpty(),
-                "Off-page network contents were not exposed to crafting recipe transfer");
+        helper.assertTrue(!physicalSource.isEmpty(),
+                "Physical network slots were not exposed to crafting recipe transfer");
         scrollMenu.setCarried(ItemStack.EMPTY);
         scrollMenu.clicked(NetworkTerminalMenu.INGREDIENT_INDEX_START, 0, ClickType.PICKUP, player);
-        helper.assertTrue(ItemStack.isSameItemSameComponents(offPage, scrollMenu.getCarried()),
-                "Crafting transfer index could not pull an off-page network item");
+        helper.assertTrue(ItemStack.isSameItemSameComponents(physicalSource, scrollMenu.getCarried()),
+                "Crafting transfer index could not pull a physical network item");
         scrollMenu.clicked(NetworkTerminalMenu.CRAFT_START, 0, ClickType.PICKUP, player);
         scrollMenu.removed(player);
         helper.assertTrue(countAll(ingots, rawMaterials) == 46,
-                "Off-page crafting transfer duplicated or lost a network item");
+                "Physical crafting transfer duplicated or lost a network item");
 
         NetworkTerminalMenu pageMenu = new NetworkTerminalMenu(9, player.getInventory(), terminal);
         helper.assertTrue(pageMenu.clickMenuButton(

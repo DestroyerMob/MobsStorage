@@ -19,6 +19,7 @@ final class NetworkTerminalView implements Container {
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> ingredientItems;
+    private final List<NetworkInventoryService.StorageSlot> ingredientSlots;
     private final Container ingredientIndex = new IngredientIndex();
     @Nullable private final NetworkInterfaceBlockEntity endpoint;
     private int scrollRow;
@@ -27,6 +28,8 @@ final class NetworkTerminalView implements Container {
     NetworkTerminalView(@Nullable NetworkInterfaceBlockEntity endpoint, int ingredientIndexSize) {
         this.endpoint = endpoint;
         this.ingredientItems = NonNullList.withSize(Math.max(0, ingredientIndexSize), ItemStack.EMPTY);
+        this.ingredientSlots = endpoint == null
+                ? List.of() : NetworkInventoryService.networkStorageSlots(endpoint);
         refresh();
     }
 
@@ -51,15 +54,6 @@ final class NetworkTerminalView implements Container {
         maxScrollRows = Math.max(0, totalRows - VISIBLE_ROWS);
         scrollRow = Math.min(scrollRow, maxScrollRows);
         int visibleStart = scrollRow * COLUMNS;
-        int hiddenSlot = 0;
-        for (int index = 0; index < flattened.size() && hiddenSlot < ingredientItems.size(); index++) {
-            if (index < visibleStart || index >= visibleStart + VISIBLE_SIZE) {
-                ingredientItems.set(hiddenSlot++, flattened.get(index));
-            }
-        }
-        while (hiddenSlot < ingredientItems.size()) {
-            ingredientItems.set(hiddenSlot++, ItemStack.EMPTY);
-        }
         for (int slot = 0; slot < VISIBLE_SIZE; slot++) {
             int index = visibleStart + slot;
             items.set(slot, index < flattened.size() ? flattened.get(index) : ItemStack.EMPTY);
@@ -145,14 +139,23 @@ final class NetworkTerminalView implements Container {
 
     private final class IngredientIndex implements Container {
         @Override public int getContainerSize() { return ingredientItems.size(); }
-        @Override public boolean isEmpty() { return ingredientItems.stream().allMatch(ItemStack::isEmpty); }
-        @Override public ItemStack getItem(int slot) { return ingredientItems.get(slot); }
+        @Override
+        public boolean isEmpty() {
+            if (endpoint == null) return ingredientItems.stream().allMatch(ItemStack::isEmpty);
+            return ingredientSlots.stream().allMatch(slot -> slot.stack().isEmpty());
+        }
+
+        @Override
+        public ItemStack getItem(int slot) {
+            if (endpoint == null) return ingredientItems.get(slot);
+            return slot < ingredientSlots.size() ? ingredientSlots.get(slot).stack() : ItemStack.EMPTY;
+        }
 
         @Override
         public ItemStack removeItem(int slot, int amount) {
             if (endpoint == null) return ContainerHelper.removeItem(ingredientItems, slot, amount);
-            ItemStack shown = ingredientItems.get(slot);
-            ItemStack extracted = NetworkInventoryService.extractMatching(endpoint, shown, amount, false);
+            if (slot >= ingredientSlots.size()) return ItemStack.EMPTY;
+            ItemStack extracted = ingredientSlots.get(slot).remove(amount);
             refresh();
             return extracted;
         }
@@ -162,10 +165,13 @@ final class NetworkTerminalView implements Container {
         @Override
         public void setItem(int slot, ItemStack stack) {
             if (endpoint == null) ingredientItems.set(slot, stack);
-            else refresh();
+            else if (slot < ingredientSlots.size()) ingredientSlots.get(slot).setFromRecipeTransfer(stack);
         }
 
-        @Override public void setChanged() { }
+        @Override
+        public void setChanged() {
+            if (endpoint != null) ingredientSlots.forEach(NetworkInventoryService.StorageSlot::setChanged);
+        }
         @Override public boolean stillValid(Player player) { return NetworkTerminalView.this.stillValid(player); }
         @Override public void clearContent() { if (endpoint == null) ingredientItems.clear(); }
     }
