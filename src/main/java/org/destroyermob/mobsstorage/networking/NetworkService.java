@@ -221,10 +221,63 @@ public final class NetworkService {
         for (BlockEntity blockEntity : storage) {
             Optional<NetworkNodeData> attached = blockEntity.getExistingData(ModAttachments.NETWORK_NODE)
                     .filter(NetworkNodeData::configured);
-            if (attached.isEmpty() || !level.isLoaded(attached.get().anchor())
-                    || positions.contains(attached.get().anchor())) continue;
+            if (attached.isEmpty()) continue;
+            if (positions.contains(attached.get().anchor())) {
+                synchronizeSavedNode(level, attached.get());
+                continue;
+            }
+            if (!level.isLoaded(attached.get().anchor())) continue;
+            if (repairIndependentNode(level, blockEntity, attached.get())) continue;
             removeStaleNode(level, blockEntity, attached.get());
         }
+    }
+
+    private static boolean repairIndependentNode(
+            ServerLevel level, BlockEntity blockEntity, NetworkNodeData stale
+    ) {
+        BlockPos current = blockEntity.getBlockPos();
+        Optional<LabelData> ownLabel = StorageResolver.rawLabel(blockEntity)
+                .filter(label -> label.anchor().equals(current));
+        if (!stale.linked() || ownLabel.isEmpty()) return false;
+
+        Optional<NetworkNodeData> anchorNode = findNode(level, stale.anchor())
+                .filter(node -> node.linked() && node.networkId().equals(stale.networkId())
+                        && node.anchor().equals(stale.anchor()));
+        if (anchorNode.isEmpty()) return false;
+
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(level.getServer());
+        Optional<StorageNetwork> networkValue = savedData.get(stale.networkId())
+                .filter(network -> network.nodes().contains(GlobalPos.of(level.dimension(), stale.anchor())));
+        if (networkValue.isEmpty()) return false;
+
+        StorageNetwork network = networkValue.get();
+        NetworkNodeData repaired = new NetworkNodeData(
+                stale.networkId(), stale.name(), stale.priority(), current.immutable());
+        setNodeData(level, List.of(blockEntity), repaired);
+        GlobalPos repairedPos = GlobalPos.of(level.dimension(), current);
+        network.addNode(repairedPos);
+        network.updateNode(repairedPos, repaired.name(), repaired.priority(), ownLabel.get().icon());
+
+        NetworkNodeData owner = anchorNode.get();
+        GlobalPos ownerPos = GlobalPos.of(level.dimension(), owner.anchor());
+        network.updateNode(ownerPos, owner.name(), owner.priority(), nodeIcon(level, owner.anchor()));
+        savedData.changed();
+        return true;
+    }
+
+    private static void synchronizeSavedNode(ServerLevel level, NetworkNodeData node) {
+        if (!node.linked()) return;
+        GlobalPos position = GlobalPos.of(level.dimension(), node.anchor());
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(level.getServer());
+        savedData.get(node.networkId()).filter(network -> network.nodes().contains(position)).ifPresent(network -> {
+            StorageNetwork.NodeInfo current = network.nodeInfo(position);
+            ResourceLocation icon = nodeIcon(level, node.anchor());
+            if (!current.name().equals(node.name()) || current.priority() != node.priority()
+                    || !current.icon().equals(icon)) {
+                network.updateNode(position, node.name(), node.priority(), icon);
+                savedData.changed();
+            }
+        });
     }
 
     private static void removeStaleNode(ServerLevel level, BlockEntity blockEntity, NetworkNodeData stale) {

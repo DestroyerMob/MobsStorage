@@ -10,10 +10,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.CompoundContainer;
 import net.minecraft.world.Container;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.ClickType;
-import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.destroyermob.mobsstorage.mixin.CompoundContainerAccessor;
@@ -22,59 +18,6 @@ import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class NetworkInventoryService {
     private NetworkInventoryService() {
-    }
-
-    public static boolean handleMenuClick(
-            AbstractContainerMenu menu, int slotId, int button, ClickType clickType, ServerPlayer player
-    ) {
-        if (slotId < 0 || slotId >= menu.slots.size()) return false;
-        Slot clicked = menu.slots.get(slotId);
-        if (clickType == ClickType.PICKUP && !menu.getCarried().isEmpty()) {
-            return routeCarried(menu, clicked.container, button == 1 ? 1 : menu.getCarried().getCount(), player);
-        }
-        if (clickType == ClickType.SWAP && NetworkService.nodeFor(clicked.container).isPresent()) {
-            int inventorySlot = button == 40 ? 40 : button;
-            if (inventorySlot < 0 || inventorySlot >= player.getInventory().getContainerSize()) return false;
-            ItemStack source = player.getInventory().getItem(inventorySlot);
-            if (source.isEmpty()) return false;
-            int inserted = insert(player, clicked.container, source.copy()).inserted();
-            if (inserted <= 0) return false;
-            source.shrink(inserted);
-            if (source.isEmpty()) player.getInventory().setItem(inventorySlot, ItemStack.EMPTY);
-            player.getInventory().setChanged();
-            menu.broadcastChanges();
-            return true;
-        }
-        if (clickType == ClickType.QUICK_MOVE && clicked.container instanceof Inventory && clicked.hasItem()) {
-            Optional<Container> target = menu.slots.stream().map(slot -> slot.container)
-                    .filter(container -> !(container instanceof Inventory))
-                    .filter(container -> NetworkService.accessibleNetwork(player, container).isPresent())
-                    .findFirst();
-            if (target.isEmpty()) return false;
-            ItemStack source = clicked.getItem();
-            int inserted = insert(player, target.get(), source.copy()).inserted();
-            if (inserted <= 0) return false;
-            source.shrink(inserted);
-            if (source.isEmpty()) clicked.setByPlayer(ItemStack.EMPTY);
-            clicked.setChanged();
-            menu.broadcastChanges();
-            return true;
-        }
-        return false;
-    }
-
-    private static boolean routeCarried(
-            AbstractContainerMenu menu, Container target, int requested, ServerPlayer player
-    ) {
-        if (NetworkService.accessibleNetwork(player, target).isEmpty()) return false;
-        ItemStack carried = menu.getCarried();
-        ItemStack offered = carried.copyWithCount(Math.min(requested, carried.getCount()));
-        int inserted = insert(player, target, offered).inserted();
-        if (inserted <= 0) return false;
-        carried.shrink(inserted);
-        menu.setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
-        menu.broadcastChanges();
-        return true;
     }
 
     public static InsertResult insert(ServerPlayer player, Container current, ItemStack offered) {

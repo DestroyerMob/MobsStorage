@@ -218,6 +218,79 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void independentLabelRepairsNeighbourAnchorWithoutOverwritingEitherNode(GameTestHelper helper) {
+        helper.setBlock(FIRST, Blocks.CHEST.defaultBlockState());
+        helper.setBlock(SECOND, Blocks.CHEST.defaultBlockState());
+        ChestBlockEntity firstChest = helper.getBlockEntity(FIRST);
+        ChestBlockEntity secondChest = helper.getBlockEntity(SECOND);
+        BlockPos first = helper.absolutePos(FIRST);
+        BlockPos second = helper.absolutePos(SECOND);
+        StorageResolver.setLabel(helper.getLevel(), List.of(firstChest), label(first, "#c:ingots"));
+        StorageResolver.setLabel(helper.getLevel(), List.of(secondChest), label(second, "#c:gems"));
+
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(helper.getLevel().getServer());
+        StorageNetwork network = savedData.create(helper.makeMockServerPlayerInLevel().getUUID(), "Repair Test");
+        GlobalPos firstNode = GlobalPos.of(helper.getLevel().dimension(), first);
+        GlobalPos secondNode = GlobalPos.of(helper.getLevel().dimension(), second);
+        network.addNode(firstNode);
+        network.updateNode(firstNode, "Gems", 0, BuiltInRegistries.ITEM.getKey(Items.DIAMOND));
+        firstChest.setData(ModAttachments.NETWORK_NODE,
+                new NetworkNodeData(network.id(), "Ingots", 0, first));
+        secondChest.setData(ModAttachments.NETWORK_NODE,
+                new NetworkNodeData(network.id(), "Gems", 0, first));
+
+        NetworkService.reconcileTopology(helper.getLevel(), first);
+        NetworkService.reconcileTopology(helper.getLevel(), second);
+
+        NetworkNodeData repaired = NetworkService.existingNode(secondChest).orElseThrow();
+        helper.assertTrue(repaired.anchor().equals(second),
+                "An independently labelled chest retained its neighbour's network anchor");
+        helper.assertTrue(network.nodes().contains(firstNode) && network.nodes().contains(secondNode),
+                "Repair did not preserve the original node and add the independent chest");
+        helper.assertTrue(network.nodeInfo(firstNode).name().equals("Ingots")
+                        && network.nodeInfo(secondNode).name().equals("Gems"),
+                "Repair allowed the stale node name to overwrite its neighbour");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void manualInsertionFiltersLocallyInsteadOfRoutingAcrossNetwork(GameTestHelper helper) {
+        helper.setBlock(FIRST, Blocks.CHEST);
+        helper.setBlock(SECOND, Blocks.CHEST);
+        ChestBlockEntity ingots = helper.getBlockEntity(FIRST);
+        ChestBlockEntity gems = helper.getBlockEntity(SECOND);
+        BlockPos ingotsPos = helper.absolutePos(FIRST);
+        BlockPos gemsPos = helper.absolutePos(SECOND);
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        StorageResolver.setLabel(helper.getLevel(), List.of(ingots), label(ingotsPos, "#c:ingots"));
+        StorageResolver.setLabel(helper.getLevel(), List.of(gems), label(gemsPos, "#c:gems"));
+
+        StorageNetworkSavedData savedData = StorageNetworkSavedData.get(helper.getLevel().getServer());
+        StorageNetwork network = savedData.create(player.getUUID(), "Local Filtering");
+        GlobalPos ingotsNode = GlobalPos.of(helper.getLevel().dimension(), ingotsPos);
+        GlobalPos gemsNode = GlobalPos.of(helper.getLevel().dimension(), gemsPos);
+        network.addNode(ingotsNode);
+        network.addNode(gemsNode);
+        ingots.setData(ModAttachments.NETWORK_NODE,
+                new NetworkNodeData(network.id(), "Ingots", 0, ingotsPos));
+        gems.setData(ModAttachments.NETWORK_NODE,
+                new NetworkNodeData(network.id(), "Gems", 0, gemsPos));
+
+        ChestMenu menu = ChestMenu.threeRows(20, player.getInventory(), ingots);
+        player.containerMenu = menu;
+        menu.setCarried(new ItemStack(Items.DIAMOND));
+        menu.clicked(0, 0, ClickType.PICKUP, player);
+        helper.assertTrue(ingots.isEmpty() && gems.isEmpty() && menu.getCarried().is(Items.DIAMOND),
+                "Manual insertion routed a rejected item into another network chest");
+
+        menu.setCarried(new ItemStack(Items.IRON_INGOT));
+        menu.clicked(0, 0, ClickType.PICKUP, player);
+        helper.assertTrue(ingots.getItem(0).is(Items.IRON_INGOT) && menu.getCarried().isEmpty(),
+                "Manual insertion did not accept an item allowed by the local chest filter");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
     public static void doubleChestInsertionStartsAtLogicalSlotZeroFromEitherAnchor(GameTestHelper helper) {
         BlockPos leftPos = FIRST;
         BlockPos rightPos = FIRST.east();

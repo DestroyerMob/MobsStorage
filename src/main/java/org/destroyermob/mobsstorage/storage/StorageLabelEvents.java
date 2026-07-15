@@ -15,7 +15,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import org.destroyermob.mobsstorage.network.ModNetworking;
 import org.destroyermob.mobsstorage.registry.ModItems;
@@ -111,6 +113,17 @@ public final class StorageLabelEvents {
             return;
         }
         scheduleTopologyReconciliation(level, event.getPos());
+    }
+
+    public static void onChunkLoad(ChunkEvent.Load event) {
+        if (!(event.getLevel() instanceof ServerLevel level) || !(event.getChunk() instanceof LevelChunk chunk)) {
+            return;
+        }
+        level.getServer().execute(() -> List.copyOf(chunk.getBlockEntities().keySet()).forEach(pos -> {
+            if (level.isLoaded(pos) && StorageResolver.networkEligible(level, pos)) {
+                reconcileAt(level, pos);
+            }
+        }));
     }
 
     private static void scheduleTopologyReconciliation(ServerLevel level, BlockPos changedPos) {

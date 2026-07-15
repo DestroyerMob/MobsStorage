@@ -40,6 +40,7 @@ public final class MobsStorage {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onBreakBlock);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onBlockPlaced);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onNeighborNotify);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, StorageLabelEvents::onChunkLoad);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemDestroyed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemUsed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onPlayerTick);

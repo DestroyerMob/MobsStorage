@@ -14,7 +14,7 @@ Mobs Storage adds configurable storage labels to Minecraft 1.21.1 on NeoForge. A
 - Empty-hand sneak-use edits a label; shears remove and return it.
 - Craft a permanent Network Wand from two sticks and redstone. Use it in air to cycle between Add to Network, Set Network Source, and Configure Storage modes; sneak-use it in air to manage networks.
 - Link storage to one network at a time, name it, assign numeric priorities, choose exactly one origin block for future remote lookup, and manage public/private membership.
-- Manual deposits into linked storage route to matching filtered storage first, then the interacted storage, then normal available storage; priority breaks ties.
+- Normal clicks and shift-clicks only insert into the opened storage and obey that storage's label filter; they do not route across the network. Explicit network actions such as safe deposit, the terminal, refills, and input/output ports still use network-wide routing and priorities.
 - Craft a Network Interface from a crafting table, four ender pearls, and four crying obsidian. Every linked interface within 256 blocks on each axis of the network source can open the paged crafting terminal.
 - The terminal browses the combined loaded inventory, crafts in a 3×3 grid, and exposes the whole network inventory to recipe-transfer helpers even when ingredients are off-page.
 - Craft dedicated Network Input and Network Output blocks from an interface, hopper, and blue or orange dye. Machines can only push into the whole network through an Input and pull from it through an Output; linked chests and interfaces no longer expose network-wide automation.
