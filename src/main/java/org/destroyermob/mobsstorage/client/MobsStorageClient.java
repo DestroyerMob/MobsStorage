@@ -15,11 +15,12 @@ public final class MobsStorageClient {
 
     public static void register(IEventBus modBus) {
         modBus.addListener(MobsStorageClient::registerMenuScreens);
+        modBus.addListener(InventoryControls::registerKeyMappings);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::onClientTick);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::render);
         NeoForge.EVENT_BUS.addListener(StorageLabelRenderer::renderHud);
-        NeoForge.EVENT_BUS.addListener(InventoryControls::onInit);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onKey);
+        NeoForge.EVENT_BUS.addListener(InventoryControls::onMouse);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onRender);
     }
 

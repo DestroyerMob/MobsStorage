@@ -1,63 +1,84 @@
 package org.destroyermob.mobsstorage.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
-import org.lwjgl.glfw.GLFW;
+
+import java.util.List;
 
 public final class InventoryControls {
+    private static final String CATEGORY = "key.categories.mobsstorage";
+    private static final List<ActionBinding> BINDINGS = List.of(
+            binding("sort_item", InventoryActionPayload.Action.SORT_ITEM, false),
+            binding("sort_category", InventoryActionPayload.Action.SORT_CATEGORY, false),
+            binding("sort_quantity", InventoryActionPayload.Action.SORT_QUANTITY, false),
+            binding("consolidate", InventoryActionPayload.Action.CONSOLIDATE, false),
+            binding("transfer_matching", InventoryActionPayload.Action.TRANSFER_MATCHING, false),
+            binding("deposit", InventoryActionPayload.Action.DEPOSIT, false),
+            binding("toggle_lock", InventoryActionPayload.Action.TOGGLE_LOCK, true),
+            binding("toggle_favourite", InventoryActionPayload.Action.TOGGLE_FAVOURITE, true),
+            binding("toggle_hotbar", InventoryActionPayload.Action.TOGGLE_HOTBAR, true),
+            binding("toggle_restock", InventoryActionPayload.Action.TOGGLE_RESTOCK, true)
+    );
+
     private InventoryControls() {}
 
-    public static void onInit(ScreenEvent.Init.Post event) {
-        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
-        int x = Math.max(2, screen.getGuiLeft() - 23);
-        int y = screen.getGuiTop();
-        add(event, screen, x, y, "A", "screen.mobsstorage.inventory.sort_item", InventoryActionPayload.Action.SORT_ITEM);
-        add(event, screen, x, y + 22, "C", "screen.mobsstorage.inventory.sort_category", InventoryActionPayload.Action.SORT_CATEGORY);
-        add(event, screen, x, y + 44, "#", "screen.mobsstorage.inventory.sort_quantity", InventoryActionPayload.Action.SORT_QUANTITY);
-        add(event, screen, x, y + 66, "+", "screen.mobsstorage.inventory.consolidate", InventoryActionPayload.Action.CONSOLIDATE);
-        add(event, screen, x, y + 88, "=", "screen.mobsstorage.inventory.transfer_matching", InventoryActionPayload.Action.TRANSFER_MATCHING);
-        add(event, screen, x, y + 110, "D", "screen.mobsstorage.inventory.deposit", InventoryActionPayload.Action.DEPOSIT);
-        event.addListener(Button.builder(Component.literal("?"), button -> {})
-                .bounds(x, y + 132, 20, 20)
-                .tooltip(Tooltip.create(Component.translatable(Minecraft.ON_OSX
-                        ? "screen.mobsstorage.inventory.shortcuts_macos"
-                        : "screen.mobsstorage.inventory.shortcuts_other"))).build());
-    }
-
-    private static void add(ScreenEvent.Init.Post event, AbstractContainerScreen<?> screen, int x, int y,
-                            String text, String tooltip, InventoryActionPayload.Action action) {
-        event.addListener(Button.builder(Component.literal(text), button -> send(screen, action, -1))
-                .bounds(x, y, 20, 20).tooltip(Tooltip.create(Component.translatable(tooltip))).build());
+    public static void registerKeyMappings(RegisterKeyMappingsEvent event) {
+        BINDINGS.forEach(binding -> event.register(binding.key()));
     }
 
     public static void onKey(ScreenEvent.KeyPressed.Pre event) {
-        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)
-                || !Screen.hasControlDown() && !Screen.hasAltDown()) return;
-        Slot slot = screen.getSlotUnderMouse();
-        if (slot == null || !(slot.container instanceof Inventory)) return;
-        InventoryActionPayload.Action action = switch (event.getKeyCode()) {
-            case GLFW.GLFW_KEY_L -> InventoryActionPayload.Action.TOGGLE_LOCK;
-            case GLFW.GLFW_KEY_F -> InventoryActionPayload.Action.TOGGLE_FAVOURITE;
-            case GLFW.GLFW_KEY_H -> InventoryActionPayload.Action.TOGGLE_HOTBAR;
-            case GLFW.GLFW_KEY_N -> InventoryActionPayload.Action.TOGGLE_RESTOCK;
-            default -> null;
-        };
-        if (action != null) {
-            send(screen, action, slot.getContainerSlot());
-            event.setCanceled(true);
+        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
+        for (ActionBinding binding : BINDINGS) {
+            if (!binding.key().matches(event.getKeyCode(), event.getScanCode())) continue;
+            if (trigger(screen, binding)) {
+                event.setCanceled(true);
+            }
+            return;
         }
+    }
+
+    public static void onMouse(ScreenEvent.MouseButtonPressed.Pre event) {
+        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
+        for (ActionBinding binding : BINDINGS) {
+            if (!binding.key().matchesMouse(event.getButton())) continue;
+            if (trigger(screen, binding)) {
+                event.setCanceled(true);
+            }
+            return;
+        }
+    }
+
+    private static boolean trigger(AbstractContainerScreen<?> screen, ActionBinding binding) {
+        int slotIndex = -1;
+        if (binding.hoveredSlotRequired()) {
+            Slot slot = screen.getSlotUnderMouse();
+            if (slot == null || !(slot.container instanceof Inventory)) return false;
+            slotIndex = slot.getContainerSlot();
+        }
+        send(screen, binding.action(), slotIndex);
+        return true;
+    }
+
+    private static ActionBinding binding(String name, InventoryActionPayload.Action action,
+                                         boolean hoveredSlotRequired) {
+        return new ActionBinding(new KeyMapping("key.mobsstorage." + name, InputConstants.Type.KEYSYM,
+                InputConstants.UNKNOWN.getValue(), CATEGORY), action, hoveredSlotRequired);
+    }
+
+    private record ActionBinding(KeyMapping key, InventoryActionPayload.Action action,
+                                 boolean hoveredSlotRequired) {
     }
 
     public static void onRender(ScreenEvent.Render.Post event) {
