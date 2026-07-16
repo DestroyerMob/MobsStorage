@@ -31,6 +31,7 @@ import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.network.SyncMenuFiltersPayload;
 import org.destroyermob.mobsstorage.registry.ModItems;
+import org.destroyermob.mobsstorage.network.SaveLabelPayload;
 import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
@@ -163,6 +164,27 @@ public final class StorageLabelGameTests {
                 "Synced menu filter accepted a disallowed item");
         helper.assertTrue(payload.allows(27, new ItemStack(Items.STICK), context),
                 "Synced menu filter leaked into the player's inventory slots");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void applyingFilterKeepsConflictsUnlessEjectionIsExplicit(GameTestHelper helper) {
+        helper.setBlock(CHEST, Blocks.CHEST);
+        ChestBlockEntity chest = helper.getBlockEntity(CHEST);
+        chest.setItem(0, new ItemStack(Items.STICK, 2));
+        var player = helper.makeMockServerPlayerInLevel();
+        BlockPos absolute = helper.absolutePos(CHEST);
+        player.teleportTo(absolute.getX() + 0.5D, absolute.getY(), absolute.getZ() + 0.5D);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                new ItemStack(ModItems.STORAGE_LABEL.get()));
+        StorageLabelService.save(player, new SaveLabelPayload(
+                absolute, ResourceLocation.withDefaultNamespace("iron_ingot"), List.of("minecraft:iron_ingot"),
+                Direction.NORTH, LabelDisplayMode.SURFACE, "Ingots", 0, false, false));
+
+        helper.assertTrue(chest.getItem(0).is(Items.STICK),
+                "Safe filter application ejected an existing conflicting stack");
+        helper.assertFalse(chest.canPlaceItem(1, new ItemStack(Items.STICK)),
+                "Safe filter application did not block future conflicting insertion");
         helper.succeed();
     }
 

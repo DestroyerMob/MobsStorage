@@ -265,10 +265,19 @@ public final class NetworkManagerScreen extends Screen {
                     textX, y + 3, SLOT_TEXT, false);
             String priority = Component.translatable("screen.mobsstorage.network.priority_short", node.priority()).getString();
             graphics.drawString(font, priority, panelRight() - 16 - font.width(priority), y + 7, SLOT_MUTED, false);
+            String status = Component.translatable(!node.active()
+                    ? "screen.mobsstorage.network.node_out_of_range"
+                    : node.missing() ? "screen.mobsstorage.network.node_missing"
+                    : node.loaded() ? "screen.mobsstorage.network.node_loaded"
+                    : "screen.mobsstorage.network.node_unloaded").getString();
             String details = node.origin()
                     ? Component.translatable("screen.mobsstorage.network.origin_badge").getString()
-                    : node.pos().pos().getX() + ", " + node.pos().pos().getY() + ", " + node.pos().pos().getZ();
-            graphics.drawString(font, details, textX, y + 13, node.origin() ? ACTIVE : SLOT_MUTED, false);
+                    : node.pos().pos().getX() + ", " + node.pos().pos().getY() + ", " + node.pos().pos().getZ()
+                    + " · " + status;
+            int detailColor = node.origin() && node.active() && !node.missing() ? ACTIVE
+                    : !node.active() || node.missing() ? WARNING : node.loaded() ? ACTIVE : SLOT_MUTED;
+            graphics.drawString(font, font.plainSubstrByWidth(details, contentWidth() - 35),
+                    textX, y + 13, detailColor, false);
         }
     }
 

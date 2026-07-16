@@ -25,6 +25,7 @@ public final class NetworkInventoryService {
         Optional<StorageNetwork> networkValue = NetworkService.accessibleNetwork(player, current);
         if (currentNode.isEmpty() || networkValue.isEmpty() || offered.isEmpty()) return new InsertResult(0, offered);
         GlobalPos currentPos = globalPos(player, current, currentNode.get());
+        if (!NetworkCoverage.contains(networkValue.get(), currentPos)) return new InsertResult(0, offered);
         return insert(player.server, networkValue.get(), offered, currentPos, false);
     }
 
@@ -46,6 +47,11 @@ public final class NetworkInventoryService {
                 .filter(stack -> !stack.isEmpty())
                 .map(ItemStack::copy)
                 .toList();
+    }
+
+    public static NetworkView networkView(Container endpoint) {
+        return automationContext(endpoint).map(NetworkInventoryService::loadNetworkView)
+                .orElse(NetworkView.EMPTY);
     }
 
     public static int networkSlotCount(Container endpoint) {
@@ -89,17 +95,26 @@ public final class NetworkInventoryService {
     }
 
     private static List<StorageSlot> loadedStorageSlots(AutomationContext context) {
+        return loadNetworkView(context).slots();
+    }
+
+    private static NetworkView loadNetworkView(AutomationContext context) {
         List<StorageSlot> result = new ArrayList<>();
+        int activeNodes = 0;
+        int loadedNodes = 0;
         List<GlobalPos> nodes = context.network().nodes().stream()
                 .sorted(Comparator.comparingInt((GlobalPos pos) -> context.network().nodeInfo(pos).priority())
                         .reversed().thenComparing(GlobalPos::toString))
                 .toList();
         for (GlobalPos nodePos : nodes) {
+            if (!NetworkCoverage.contains(context.network(), nodePos)) continue;
+            activeNodes++;
             ServerLevel level = context.level().getServer().getLevel(nodePos.dimension());
             if (level == null || !level.isLoaded(nodePos.pos())) continue;
             Optional<NetworkNodeData> node = NetworkService.findNode(level, nodePos.pos())
                     .filter(value -> value.networkId().equals(context.network().id()));
             if (node.isEmpty()) continue;
+            loadedNodes++;
             for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.get().anchor())) {
                 if (!(blockEntity instanceof Container container)) continue;
                 for (int slot = 0; slot < container.getContainerSize(); slot++) {
@@ -107,7 +122,10 @@ public final class NetworkInventoryService {
                 }
             }
         }
-        return List.copyOf(result);
+        List<StorageSlot> slots = List.copyOf(result);
+        int usedSlots = (int) slots.stream().filter(slot -> !slot.stack().isEmpty()).count();
+        return new NetworkView(slots, loadedNodes, activeNodes, context.network().nodes().size(),
+                usedSlots, slots.size());
     }
 
     private static InsertResult insert(
@@ -129,6 +147,7 @@ public final class NetworkInventoryService {
     ) {
         List<Target> targets = new ArrayList<>();
         for (GlobalPos nodePos : network.nodes()) {
+            if (!NetworkCoverage.contains(network, nodePos)) continue;
             ServerLevel level = server.getLevel(nodePos.dimension());
             if (level == null || !level.isLoaded(nodePos.pos())) continue;
             Optional<NetworkNodeData> node = NetworkService.findNode(level, nodePos.pos())
@@ -157,6 +176,8 @@ public final class NetworkInventoryService {
             return Optional.empty();
         }
         return StorageNetworkSavedData.get(level.getServer()).get(node.get().networkId())
+                .filter(network -> NetworkCoverage.contains(network,
+                        GlobalPos.of(level.dimension(), node.get().anchor())))
                 .map(network -> new AutomationContext(level, network,
                         GlobalPos.of(level.dimension(), node.get().anchor())));
     }
@@ -230,6 +251,10 @@ public final class NetworkInventoryService {
     }
 
     public record InsertResult(int inserted, ItemStack remainder) {}
+    public record NetworkView(List<StorageSlot> slots, int loadedNodes, int activeNodes,
+                              int totalNodes, int usedSlots, int totalSlots) {
+        public static final NetworkView EMPTY = new NetworkView(List.of(), 0, 0, 0, 0, 0);
+    }
     public record StorageSlot(Container container, int slot) {
         public ItemStack stack() {
             return container.getItem(slot);

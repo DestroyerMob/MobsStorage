@@ -65,18 +65,23 @@ public record NetworkSnapshot(
         }
     }
 
-    public record Node(GlobalPos pos, String name, int priority, ResourceLocation icon, boolean origin) {
+    public record Node(GlobalPos pos, String name, int priority, ResourceLocation icon,
+                       boolean origin, boolean active, boolean loaded, boolean missing) {
         void write(RegistryFriendlyByteBuf buffer) {
             GlobalPos.STREAM_CODEC.encode(buffer, pos);
             buffer.writeUtf(name, 48);
             buffer.writeInt(priority);
             buffer.writeResourceLocation(icon);
             buffer.writeBoolean(origin);
+            buffer.writeBoolean(active);
+            buffer.writeBoolean(loaded);
+            buffer.writeBoolean(missing);
         }
 
         static Node read(RegistryFriendlyByteBuf buffer) {
             return new Node(GlobalPos.STREAM_CODEC.decode(buffer), buffer.readUtf(48), buffer.readInt(),
-                    buffer.readResourceLocation(), buffer.readBoolean());
+                    buffer.readResourceLocation(), buffer.readBoolean(), buffer.readBoolean(),
+                    buffer.readBoolean(), buffer.readBoolean());
         }
     }
 }

@@ -48,7 +48,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     private final ResultContainer resultSlots = new ResultContainer();
     private final ContainerLevelAccess access;
     private final Player player;
-    private final ContainerData scrollData = new SimpleContainerData(2);
+    private final ContainerData scrollData = new SimpleContainerData(7);
     @Nullable private final NetworkInterfaceBlockEntity terminal;
 
     public NetworkTerminalMenu(int containerId, Inventory playerInventory, RegistryFriendlyByteBuf data) {
@@ -101,8 +101,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000, true));
         }
 
-        scrollData.set(0, network.scrollRow());
-        scrollData.set(1, network.maxScrollRows());
+        updateViewData();
         addDataSlots(scrollData);
         updateCraftingResult(null);
     }
@@ -136,8 +135,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     public void broadcastChanges() {
         if (terminal != null) {
             network.refresh();
-            scrollData.set(0, network.scrollRow());
-            scrollData.set(1, network.maxScrollRows());
+            updateViewData();
         }
         super.broadcastChanges();
     }
@@ -162,6 +160,44 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
 
     public int maxScrollRows() {
         return Math.max(0, scrollData.get(1));
+    }
+
+    public int loadedNodes() { return scrollData.get(2); }
+    public int activeNodes() { return scrollData.get(3); }
+    public int totalNodes() { return scrollData.get(4); }
+    public int usedSlots() { return scrollData.get(5); }
+    public int totalSlots() { return scrollData.get(6); }
+
+    public void setQuery(String query, TerminalSortMode sortMode) {
+        if (terminal == null) return;
+        network.setQuery(query, sortMode);
+        updateViewData();
+        broadcastFullState();
+    }
+
+    public void extractExact(ServerPlayer player, int slotId, int amount) {
+        if (terminal == null || !getCarried().isEmpty() || amount <= 0
+                || slotId < NETWORK_START || slotId >= NETWORK_END) return;
+        Slot slot = getSlot(slotId);
+        ItemStack shown = slot.getItem();
+        if (shown.isEmpty()) return;
+        int requested = Math.min(amount, shown.getMaxStackSize());
+        ItemStack extracted = slot.remove(requested);
+        if (!extracted.isEmpty()) {
+            setCarried(extracted);
+            slot.onTake(player, extracted);
+            broadcastChanges();
+        }
+    }
+
+    private void updateViewData() {
+        scrollData.set(0, network.scrollRow());
+        scrollData.set(1, network.maxScrollRows());
+        scrollData.set(2, network.loadedNodes());
+        scrollData.set(3, network.activeNodes());
+        scrollData.set(4, network.totalNodes());
+        scrollData.set(5, network.usedSlots());
+        scrollData.set(6, network.totalSlots());
     }
 
     @Override

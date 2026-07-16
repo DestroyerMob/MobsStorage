@@ -322,8 +322,20 @@ public final class NetworkService {
                     () -> message(player, "item.mobsstorage.network_wand.not_linked"));
             return;
         }
+        GlobalPos candidate = GlobalPos.of(player.serverLevel().dimension(), pos);
+        if (selected.get().origin().isEmpty() && !selected.get().nodes().isEmpty()) {
+            message(player, "item.mobsstorage.network_wand.anchor_required", selected.get().name());
+            return;
+        }
+        if (selected.get().origin().isPresent() && !NetworkCoverage.contains(selected.get(), candidate)) {
+            message(player, "item.mobsstorage.network_wand.out_of_range", NetworkCoverage.RADIUS);
+            return;
+        }
         if (link(player, pos, selected.get())) {
             message(player, "item.mobsstorage.network_wand.storage_added", selected.get().name());
+            if (selected.get().origin().isEmpty()) {
+                message(player, "item.mobsstorage.network_wand.set_first_anchor");
+            }
         }
     }
 
@@ -345,7 +357,7 @@ public final class NetworkService {
             message(player, "block.mobsstorage.network_interface.no_source");
             return;
         }
-        if (!withinOriginRange(network.get(), terminalPos)) {
+        if (!withinAnchorRange(network.get(), terminalPos)) {
             message(player, "block.mobsstorage.network_interface.out_of_range");
             return;
         }
@@ -363,16 +375,11 @@ public final class NetworkService {
         Optional<StorageNetwork> network = StorageNetworkSavedData.get(serverPlayer.server).get(node.get().networkId())
                 .filter(value -> value.isMember(player.getUUID()));
         GlobalPos pos = GlobalPos.of(serverPlayer.serverLevel().dimension(), node.get().anchor());
-        return network.filter(value -> withinOriginRange(value, pos)).isPresent();
+        return network.filter(value -> withinAnchorRange(value, pos)).isPresent();
     }
 
-    static boolean withinOriginRange(StorageNetwork network, GlobalPos endpoint) {
-        return network.origin()
-                .filter(origin -> origin.dimension().equals(endpoint.dimension()))
-                .filter(origin -> Math.abs(origin.pos().getX() - endpoint.pos().getX()) <= NetworkRefillService.RANGE)
-                .filter(origin -> Math.abs(origin.pos().getY() - endpoint.pos().getY()) <= NetworkRefillService.RANGE)
-                .filter(origin -> Math.abs(origin.pos().getZ() - endpoint.pos().getZ()) <= NetworkRefillService.RANGE)
-                .isPresent();
+    static boolean withinAnchorRange(StorageNetwork network, GlobalPos endpoint) {
+        return NetworkCoverage.contains(network, endpoint);
     }
 
     private static void setOrigin(
@@ -393,6 +400,11 @@ public final class NetworkService {
         data.changed();
         message(player, "item.mobsstorage.network_wand.origin_set", selected.get().name(),
                 origin.pos().getX(), origin.pos().getY(), origin.pos().getZ());
+        long offline = selected.get().nodes().stream()
+                .filter(node -> !NetworkCoverage.contains(selected.get(), node)).count();
+        if (offline > 0) {
+            message(player, "item.mobsstorage.network_wand.anchor_offline_nodes", offline, NetworkCoverage.RADIUS);
+        }
     }
 
     private static void configureStorage(
@@ -481,8 +493,14 @@ public final class NetworkService {
             StorageNetwork.NodeInfo info = network.nodeInfo(pos);
             String name = info.name().isBlank()
                     ? "Storage " + pos.pos().getX() + ", " + pos.pos().getY() + ", " + pos.pos().getZ() : info.name();
+            ServerLevel level = server.getLevel(pos.dimension());
+            boolean chunkLoaded = level != null && level.isLoaded(pos.pos());
+            boolean loaded = chunkLoaded && findNode(level, pos.pos())
+                    .filter(node -> node.networkId().equals(network.id())).isPresent();
+            boolean missing = chunkLoaded && !loaded;
+            boolean active = NetworkCoverage.contains(network, pos);
             return new NetworkSnapshot.Node(pos, name, info.priority(), info.icon(),
-                    network.origin().filter(pos::equals).isPresent());
+                    network.origin().filter(pos::equals).isPresent(), active, loaded, missing);
         }).sorted(Comparator.comparingInt(NetworkSnapshot.Node::priority).reversed()
                 .thenComparing(NetworkSnapshot.Node::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new NetworkSnapshot(network.id(), network.name(), profileName(server, network.owner()),

@@ -1,11 +1,17 @@
 package org.destroyermob.mobsstorage.client;
 
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Inventory;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
+import org.destroyermob.mobsstorage.menu.TerminalSortMode;
+import org.destroyermob.mobsstorage.network.TerminalExtractPayload;
+import org.destroyermob.mobsstorage.network.TerminalQueryPayload;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 public final class NetworkTerminalScreen extends AbstractContainerScreen<NetworkTerminalMenu> {
     private static final int PANEL = 0xFFC6C6C6;
@@ -20,6 +26,10 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
     private static final int MIN_THUMB_HEIGHT = 15;
     private boolean draggingScrollbar;
     private int requestedScrollRow = -1;
+    private EditBox search;
+    private EditBox amount;
+    private Button sortButton;
+    private TerminalSortMode sortMode = TerminalSortMode.NAME;
 
     public NetworkTerminalScreen(NetworkTerminalMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -27,6 +37,33 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
         imageHeight = 224;
         inventoryLabelX = 8;
         inventoryLabelY = 130;
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        search = addRenderableWidget(new EditBox(font, leftPos + 8, topPos + 4, 102, 16,
+                Component.translatable("screen.mobsstorage.terminal.search")));
+        search.setMaxLength(64);
+        search.setHint(Component.translatable("screen.mobsstorage.terminal.search"));
+        search.setResponder(value -> sendQuery());
+        sortButton = addRenderableWidget(Button.builder(sortMode.displayName(), button -> {
+            sortMode = sortMode.next();
+            button.setMessage(sortMode.displayName());
+            sendQuery();
+        }).bounds(leftPos + 114, topPos + 4, 63, 16).build());
+        amount = addRenderableWidget(new EditBox(font, leftPos + 184, topPos + 92, 82, 16,
+                Component.translatable("screen.mobsstorage.terminal.amount")));
+        amount.setMaxLength(3);
+        amount.setFilter(value -> value.isEmpty() || value.chars().allMatch(Character::isDigit));
+        amount.setHint(Component.translatable("screen.mobsstorage.terminal.amount"));
+    }
+
+    private void sendQuery() {
+        if (search != null) {
+            PacketDistributor.sendToServer(new TerminalQueryPayload(
+                    menu.containerId, search.getValue(), sortMode));
+        }
     }
 
     @Override
@@ -138,6 +175,21 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
             scrollFromMouse(mouseY);
             return true;
         }
+        if (button == 0 && amount != null && !amount.getValue().isBlank()) {
+            net.minecraft.world.inventory.Slot slot = getSlotUnderMouse();
+            int slotId = slot == null ? -1 : menu.slots.indexOf(slot);
+            if (slotId >= NetworkTerminalMenu.NETWORK_START && slotId < NetworkTerminalMenu.NETWORK_END) {
+                try {
+                    int requested = Integer.parseInt(amount.getValue());
+                    if (requested > 0) {
+                        PacketDistributor.sendToServer(new TerminalExtractPayload(
+                                menu.containerId, slotId, requested));
+                        return true;
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
@@ -189,8 +241,14 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
 
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.drawString(font, title, titleLabelX, titleLabelY, TEXT, false);
         graphics.drawString(font, Component.translatable("screen.mobsstorage.terminal.crafting"), 184, 22, TEXT, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.terminal.status",
+                        menu.usedSlots(), menu.totalSlots(), menu.loadedNodes(), menu.activeNodes()),
+                8, 116, TEXT, false);
+        if (menu.activeNodes() < menu.totalNodes()) {
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.terminal.offline",
+                            menu.totalNodes() - menu.activeNodes()), 184, 116, 0xFF9A5B20, false);
+        }
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false);
     }
 }

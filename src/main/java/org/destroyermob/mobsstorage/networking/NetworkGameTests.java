@@ -26,6 +26,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.HopperBlock;
@@ -48,6 +49,7 @@ import org.destroyermob.mobsstorage.inventory.InventoryProfile;
 import org.destroyermob.mobsstorage.inventory.CarryRule;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
+import org.destroyermob.mobsstorage.menu.TerminalSortMode;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
@@ -85,7 +87,7 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void networkRoutesAndRefillsWithoutOrigin(GameTestHelper helper) {
+    public static void networkRoutesAndRefillsWithinAnchorCoverage(GameTestHelper helper) {
         helper.setBlock(FIRST, Blocks.CHEST);
         helper.setBlock(SECOND, Blocks.CHEST);
         helper.setBlock(THIRD, Blocks.CHEST);
@@ -114,6 +116,12 @@ public final class NetworkGameTests {
                 network.id(), "Supplies", 10, helper.absolutePos(SECOND)));
         third.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Overflow", 20, helper.absolutePos(THIRD)));
+
+        NetworkInventoryService.InsertResult offline = NetworkInventoryService.insert(
+                player, first, new ItemStack(Items.COBBLESTONE));
+        helper.assertTrue(offline.inserted() == 0 && first.isEmpty(),
+                "A network without an anchor still accepted routed insertion");
+        network.setOrigin(firstPos);
 
         ItemStack offered = new ItemStack(Items.COBBLESTONE, 32);
         NetworkInventoryService.InsertResult inserted = NetworkInventoryService.insert(player, first, offered);
@@ -216,7 +224,7 @@ public final class NetworkGameTests {
         helper.assertFalse(network.nodes().contains(networkAnchor),
                 "The network retained the missing double-chest anchor");
         helper.assertTrue(network.origin().isEmpty(),
-                "The network source retained the missing double-chest anchor");
+                "The network retained an anchor at the missing double-chest half");
         helper.succeed();
     }
 
@@ -320,6 +328,7 @@ public final class NetworkGameTests {
         StorageNetwork network = savedData.create(player.getUUID(), "Double Chest Ordering");
         GlobalPos leftNodePos = GlobalPos.of(helper.getLevel().dimension(), leftAnchor);
         network.addNode(leftNodePos);
+        network.setOrigin(leftNodePos);
         NetworkNodeData leftNode = new NetworkNodeData(network.id(), "Materials", 0, leftAnchor);
         leftChest.setData(ModAttachments.NETWORK_NODE, leftNode);
         rightChest.setData(ModAttachments.NETWORK_NODE, leftNode);
@@ -336,6 +345,7 @@ public final class NetworkGameTests {
         network.removeNode(leftNodePos);
         GlobalPos rightNodePos = GlobalPos.of(helper.getLevel().dimension(), rightAnchor);
         network.addNode(rightNodePos);
+        network.setOrigin(rightNodePos);
         NetworkNodeData rightNode = new NetworkNodeData(network.id(), "Materials", 0, rightAnchor);
         leftChest.setData(ModAttachments.NETWORK_NODE, rightNode);
         rightChest.setData(ModAttachments.NETWORK_NODE, rightNode);
@@ -407,6 +417,7 @@ public final class NetworkGameTests {
         StorageNetwork network = data.create(player.getUUID(), "Carry Rule Test");
         GlobalPos nodePos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
         network.addNode(nodePos);
+        network.setOrigin(nodePos);
         data.changed();
         chest.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Supplies", 0, helper.absolutePos(FIRST)));
@@ -598,6 +609,7 @@ public final class NetworkGameTests {
         network.addNode(inputPos);
         network.addNode(rawPos);
         network.addNode(ingotsPos);
+        network.setOrigin(inputPos);
         network.updateNode(inputPos, "Machine Input", 0, MobsStorage.id("network_input"));
         network.updateNode(rawPos, "Raw Materials", 0, LabelData.AIR);
         network.updateNode(ingotsPos, "Ingots", 0, LabelData.AIR);
@@ -670,6 +682,7 @@ public final class NetworkGameTests {
         GlobalPos storagePos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
         network.addNode(outputPos);
         network.addNode(storagePos);
+        network.setOrigin(outputPos);
         network.updateNode(outputPos, "Machine Output", 0, MobsStorage.id("network_output"));
         network.updateNode(storagePos, "Storage", 0, LabelData.AIR);
         output.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
@@ -711,7 +724,7 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void networkInterfacesUseSourceRangeAndCraftWithoutDuplication(GameTestHelper helper) {
+    public static void networkInterfacesUseAnchorRangeAndCraftWithoutDuplication(GameTestHelper helper) {
         helper.setBlock(FIRST, ModBlocks.NETWORK_INTERFACE.get());
         helper.setBlock(SECOND, Blocks.CHEST);
         helper.setBlock(THIRD, Blocks.CHEST);
@@ -760,14 +773,18 @@ public final class NetworkGameTests {
         helper.assertTrue(interfaceHandler == null,
                 "Network Interface still exposed network-wide machine automation");
         helper.assertTrue(NetworkService.canUseTerminal(player, terminal),
-                "Interface within source range could not open its crafting terminal");
+                "Interface within anchor range could not open its crafting terminal");
         helper.assertTrue(NetworkService.canUseTerminal(player, secondTerminal),
-                "A second linked interface within source range was not functional");
-        helper.assertFalse(NetworkService.withinOriginRange(network, GlobalPos.of(
-                        helper.getLevel().dimension(), ingotsPos.pos().offset(NetworkRefillService.RANGE + 1, 0, 0))),
-                "Interface source range extended beyond 256 blocks");
+                "A second linked interface within anchor range was not functional");
+        helper.assertFalse(NetworkService.withinAnchorRange(network, GlobalPos.of(
+                        helper.getLevel().dimension(), ingotsPos.pos().offset(NetworkCoverage.RADIUS + 1, 0, 0))),
+                "Interface anchor range extended beyond 256 blocks");
 
         NetworkTerminalMenu menu = new NetworkTerminalMenu(7, player.getInventory(), terminal);
+        menu.setQuery("raw iron", TerminalSortMode.NAME);
+        helper.assertTrue(menu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().is(Items.RAW_IRON),
+                "Terminal search did not find a stored item by display name");
+        menu.setQuery("", TerminalSortMode.QUANTITY);
         int visibleRawSlot = -1;
         for (int slot = NetworkTerminalMenu.NETWORK_START; slot < NetworkTerminalMenu.NETWORK_END; slot++) {
             if (menu.getSlot(slot).getItem().is(Items.RAW_IRON)) {
@@ -779,6 +796,14 @@ public final class NetworkGameTests {
                 "Crafting terminal did not display the combined network inventory");
         helper.assertFalse(menu.getSlot(visibleRawSlot).mayPickup(player),
                 "Recipe transfer could still consume an aggregate display slot");
+
+        menu.extractExact(player, visibleRawSlot, 2);
+        helper.assertTrue(menu.getCarried().is(Items.RAW_IRON) && menu.getCarried().getCount() == 2
+                        && count(Items.RAW_IRON, rawMaterials) == 3,
+                "Terminal exact withdrawal did not remove the requested amount");
+        menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
+        helper.assertTrue(menu.getCarried().isEmpty() && count(Items.RAW_IRON, rawMaterials) == 5,
+                "Terminal did not return the exact-withdrawal test stack to the network");
 
         menu.setCarried(new ItemStack(Items.GOLD_INGOT, 2));
         menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
@@ -879,20 +904,41 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void networkKeepsOneOrigin(GameTestHelper helper) {
+    public static void networkKeepsOneAnchor(GameTestHelper helper) {
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         StorageNetwork network = StorageNetworkSavedData.get(helper.getLevel().getServer())
-                .create(player.getUUID(), "Origin Test");
+                .create(player.getUUID(), "Anchor Test");
         GlobalPos first = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
         GlobalPos second = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
         network.addNode(first);
         network.addNode(second);
         network.setOrigin(first);
-        helper.assertTrue(network.origin().filter(first::equals).isPresent(), "First origin was not stored");
+        helper.assertTrue(network.origin().filter(first::equals).isPresent(), "First anchor was not stored");
         network.setOrigin(second);
-        helper.assertTrue(network.origin().filter(second::equals).isPresent(), "Second origin did not replace the first");
+        helper.assertTrue(network.origin().filter(second::equals).isPresent(), "Second anchor did not replace the first");
         network.removeNode(second);
-        helper.assertTrue(network.origin().isEmpty(), "Removing the origin node did not clear the origin");
+        helper.assertTrue(network.origin().isEmpty(), "Removing the anchor node did not clear the anchor");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void networkCoverageIsSphericalAndDimensionBound(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        StorageNetwork network = StorageNetworkSavedData.get(helper.getLevel().getServer())
+                .create(player.getUUID(), "Coverage Test");
+        GlobalPos anchor = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FIRST));
+        network.addNode(anchor);
+        network.setOrigin(anchor);
+
+        helper.assertTrue(NetworkCoverage.contains(network, GlobalPos.of(anchor.dimension(),
+                        anchor.pos().offset(NetworkCoverage.RADIUS, 0, 0))),
+                "Network coverage excluded its spherical boundary");
+        helper.assertFalse(NetworkCoverage.contains(network, GlobalPos.of(anchor.dimension(),
+                        anchor.pos().offset(NetworkCoverage.RADIUS, NetworkCoverage.RADIUS, 0))),
+                "Network coverage still used an axis-aligned cube");
+        helper.assertFalse(NetworkCoverage.contains(network, GlobalPos.of(Level.NETHER,
+                        anchor.pos())),
+                "Network coverage crossed dimensions without a dimensional anchor");
         helper.succeed();
     }
 
@@ -904,7 +950,7 @@ public final class NetworkGameTests {
                 "New wand did not default to Add to Network mode");
         NetworkService.cycleWandMode(player, wand);
         helper.assertTrue(NetworkService.wandMode(wand) == NetworkWandMode.SET_ORIGIN,
-                "Wand did not cycle to Set Network Origin mode");
+                "Wand did not cycle to Set Network Anchor mode");
         NetworkService.cycleWandMode(player, wand);
         helper.assertTrue(NetworkService.wandMode(wand) == NetworkWandMode.CONFIGURE_STORAGE,
                 "Wand did not cycle to Configure Storage mode");

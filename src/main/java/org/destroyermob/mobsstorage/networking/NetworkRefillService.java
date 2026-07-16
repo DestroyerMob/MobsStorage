@@ -26,7 +26,6 @@ import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 
 public final class NetworkRefillService {
-    public static final int RANGE = 256;
     private static final Map<UUID, List<PendingRefill>> PENDING = new HashMap<>();
 
     private NetworkRefillService() {
@@ -119,6 +118,7 @@ public final class NetworkRefillService {
                     .sorted(java.util.Comparator.comparingInt((GlobalPos pos) -> network.nodeInfo(pos).priority()).reversed())
                     .toList();
             for (GlobalPos node : nodes) {
+                if (!NetworkCoverage.contains(network, node)) continue;
                 ServerLevel level = player.server.getLevel(node.dimension());
                 if (level == null || !level.isLoaded(node.pos())) continue;
                 if (NetworkService.findNode(level, node.pos())
@@ -194,6 +194,7 @@ public final class NetworkRefillService {
 
     private static boolean contains(ServerPlayer player, StorageNetwork network, ItemStack sample) {
         for (GlobalPos node : network.nodes()) {
+            if (!NetworkCoverage.contains(network, node)) continue;
             ServerLevel level = player.server.getLevel(node.dimension());
             if (level == null || !level.isLoaded(node.pos())) continue;
             for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.pos())) {
@@ -233,11 +234,8 @@ public final class NetworkRefillService {
     }
 
     private static boolean nearNetwork(ServerPlayer player, StorageNetwork network) {
-        return network.nodes().stream()
-                .filter(node -> node.dimension().equals(player.serverLevel().dimension()))
-                .anyMatch(node -> Math.abs(node.pos().getX() - player.getBlockX()) <= RANGE
-                        && Math.abs(node.pos().getY() - player.getBlockY()) <= RANGE
-                        && Math.abs(node.pos().getZ() - player.getBlockZ()) <= RANGE);
+        return NetworkCoverage.contains(network, GlobalPos.of(
+                player.serverLevel().dimension(), player.blockPosition()));
     }
 
     private static Extracted extract(ServerPlayer player, StorageNetwork network, ItemStack original) {
@@ -246,6 +244,7 @@ public final class NetworkRefillService {
                 .toList();
         int wanted = original.isStackable() ? original.getMaxStackSize() : 1;
         for (GlobalPos node : nodes) {
+            if (!NetworkCoverage.contains(network, node)) continue;
             ServerLevel level = player.server.getLevel(node.dimension());
             if (level == null || !level.isLoaded(node.pos())) continue;
             if (NetworkService.findNode(level, node.pos()).filter(value -> value.networkId().equals(network.id())).isEmpty()) continue;

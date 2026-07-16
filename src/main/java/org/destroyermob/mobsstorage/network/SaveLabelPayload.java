@@ -20,7 +20,8 @@ public record SaveLabelPayload(
         LabelDisplayMode displayMode,
         String storageName,
         int priority,
-        boolean alwaysShow
+        boolean alwaysShow,
+        boolean ejectConflicts
 ) implements CustomPacketPayload {
     public static final Type<SaveLabelPayload> TYPE = new Type<>(MobsStorage.id("save_label"));
     public static final StreamCodec<RegistryFriendlyByteBuf, SaveLabelPayload> STREAM_CODEC =
@@ -40,6 +41,7 @@ public record SaveLabelPayload(
         buffer.writeUtf(storageName, 48);
         buffer.writeInt(priority);
         buffer.writeBoolean(alwaysShow);
+        buffer.writeBoolean(ejectConflicts);
     }
 
     private static SaveLabelPayload read(RegistryFriendlyByteBuf buffer) {
@@ -57,7 +59,7 @@ public record SaveLabelPayload(
         Direction face = buffer.readEnum(Direction.class);
         LabelDisplayMode displayMode = buffer.readEnum(LabelDisplayMode.class);
         return new SaveLabelPayload(pos, icon, filters, face, displayMode,
-                buffer.readUtf(48), buffer.readInt(), buffer.readBoolean());
+                buffer.readUtf(48), buffer.readInt(), buffer.readBoolean(), buffer.readBoolean());
     }
 
     @Override

@@ -42,7 +42,9 @@ public final class StorageLabelService {
                 payload.icon(), payload.filters(), payload.face(), payload.displayMode(), payload.alwaysShow(), anchor);
         StorageResolver.setLabel(level, storage, data);
         NetworkService.updateDetails(level, pos, payload.storageName(), payload.priority(), payload.icon());
-        ejectDisallowed(level, storage, data, player.position());
+        if (payload.ejectConflicts()) {
+            ejectDisallowed(level, storage, data, player.position());
+        }
     }
 
     private static boolean consumeLabel(ServerPlayer player) {

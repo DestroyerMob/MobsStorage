@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedHashMap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -20,7 +20,13 @@ import net.neoforged.fml.ModList;
 
 public final class FilterRules {
     public static final int MAX_FILTERS = 64;
-    private static final Map<String, Expression> COMPILED = new ConcurrentHashMap<>();
+    private static final int MAX_COMPILED_EXPRESSIONS = 1024;
+    private static final Map<String, Expression> COMPILED = new LinkedHashMap<>(128, 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Expression> eldest) {
+            return size() > MAX_COMPILED_EXPRESSIONS;
+        }
+    };
 
     private FilterRules() {
     }
@@ -90,7 +96,7 @@ public final class FilterRules {
         return false;
     }
 
-    private static Expression compile(String source) {
+    private static synchronized Expression compile(String source) {
         return COMPILED.computeIfAbsent(source, FilterRules::parse);
     }
 
