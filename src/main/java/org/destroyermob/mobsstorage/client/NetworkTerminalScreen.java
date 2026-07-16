@@ -1,32 +1,104 @@
 package org.destroyermob.mobsstorage.client;
 
+import java.util.List;
+import java.util.Optional;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Inventory;
+import net.neoforged.neoforge.network.PacketDistributor;
+import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
+import org.destroyermob.mobsstorage.menu.NetworkTerminalSort;
+import org.destroyermob.mobsstorage.network.UpdateTerminalViewPayload;
+import org.destroyermob.mobsstorage.storage.FilterRules;
 
 public final class NetworkTerminalScreen extends AbstractContainerScreen<NetworkTerminalMenu> {
+    private static final ResourceLocation TEXTURE = MobsStorage.id("textures/gui/crafting_terminal.png");
+    private static final int TEXT = 0xFF404040;
     private static final int PANEL = 0xFFC6C6C6;
     private static final int SLOT = 0xFF8B8B8B;
     private static final int LIGHT = 0xFFFFFFFF;
     private static final int DARK = 0xFF555555;
-    private static final int TEXT = 0xFF404040;
-    private static final int SCROLL_X = 171;
-    private static final int SCROLL_Y = 24;
-    private static final int SCROLL_WIDTH = 6;
-    private static final int SCROLL_HEIGHT = 88;
+    private static final int SEARCH_X = 7;
+    private static final int SEARCH_Y = 17;
+    private static final int SEARCH_WIDTH = 162;
+    private static final int SEARCH_HEIGHT = 16;
+    private static final int CONTROL_X = -22;
+    private static final int CONTROL_Y = 36;
+    private static final int CONTROL_SIZE = 20;
+    private static final int CONTROL_GAP = 2;
+    private static final int SCROLL_X = 170;
+    private static final int SCROLL_Y = 36;
+    private static final int SCROLL_WIDTH = 4;
+    private static final int SCROLL_HEIGHT = 109;
     private static final int MIN_THUMB_HEIGHT = 15;
+    private static final int SEARCH_DEBOUNCE_TICKS = 4;
+
+    private EditBox search;
+    private Button sortButton;
+    private Button directionButton;
+    private Button clearButton;
+    private Button helpButton;
+    private NetworkTerminalSort sort = NetworkTerminalSort.ITEM;
+    private boolean descending;
+    private boolean searchDirty;
+    private int searchDebounce;
+    private Component searchError = CommonComponents.EMPTY;
     private boolean draggingScrollbar;
     private int requestedScrollRow = -1;
 
     public NetworkTerminalScreen(NetworkTerminalMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
-        imageWidth = 274;
-        imageHeight = 224;
+        imageWidth = 175;
+        imageHeight = 300;
         inventoryLabelX = 8;
-        inventoryLabelY = 130;
+        inventoryLabelY = 207;
+    }
+
+    @Override
+    protected void init() {
+        String previousQuery = search == null ? "" : search.getValue();
+        super.init();
+
+        search = addRenderableWidget(new EditBox(
+                font, leftPos + SEARCH_X, topPos + SEARCH_Y, SEARCH_WIDTH, SEARCH_HEIGHT,
+                Component.translatable("screen.mobsstorage.terminal.search")));
+        search.setMaxLength(UpdateTerminalViewPayload.MAX_QUERY_LENGTH);
+        search.setHint(Component.translatable("screen.mobsstorage.terminal.search_hint"));
+        search.setValue(previousQuery);
+        search.setResponder(this::queryChanged);
+        updateSearchValidation(previousQuery);
+
+        int controlLeft = leftPos + CONTROL_X;
+        int controlTop = topPos + CONTROL_Y;
+        sortButton = addRenderableWidget(Button.builder(sortSymbol(), button -> {
+            sort = sort.next();
+            updateControlLabels();
+            sendViewUpdate();
+        }).bounds(controlLeft, controlTop, CONTROL_SIZE, CONTROL_SIZE).build());
+        directionButton = addRenderableWidget(Button.builder(directionSymbol(), button -> {
+            descending = !descending;
+            updateControlLabels();
+            sendViewUpdate();
+        }).bounds(controlLeft, controlTop + CONTROL_SIZE + CONTROL_GAP,
+                CONTROL_SIZE, CONTROL_SIZE).build());
+        clearButton = addRenderableWidget(Button.builder(Component.literal("x"), button -> {
+            search.setValue("");
+            setInitialFocus(search);
+        }).bounds(controlLeft, controlTop + (CONTROL_SIZE + CONTROL_GAP) * 2,
+                CONTROL_SIZE, CONTROL_SIZE).build());
+        helpButton = addRenderableWidget(Button.builder(Component.literal("?"), button ->
+                setInitialFocus(search)).bounds(
+                controlLeft, controlTop + (CONTROL_SIZE + CONTROL_GAP) * 3,
+                CONTROL_SIZE, CONTROL_SIZE).build());
+        updateControlLabels();
+        setInitialFocus(search);
     }
 
     @Override
@@ -35,12 +107,57 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
         if (requestedScrollRow > menu.maxScrollRows() || requestedScrollRow == menu.scrollRow()) {
             requestedScrollRow = -1;
         }
+        if (searchDirty && --searchDebounce <= 0) {
+            sendViewUpdate();
+        }
+    }
+
+    private void queryChanged(String query) {
+        updateSearchValidation(query);
+        searchDirty = true;
+        searchDebounce = SEARCH_DEBOUNCE_TICKS;
+        if (clearButton != null) clearButton.active = !query.isBlank();
+    }
+
+    private void updateSearchValidation(String query) {
+        searchError = query.isBlank()
+                ? CommonComponents.EMPTY
+                : FilterRules.validate(List.of(query.trim())).orElse(CommonComponents.EMPTY);
+        if (search != null) search.setTextColor(searchError.equals(CommonComponents.EMPTY) ? 0xE0E0E0 : 0xFF6666);
+    }
+
+    private void sendViewUpdate() {
+        if (search == null) return;
+        searchDirty = false;
+        searchDebounce = 0;
+        requestedScrollRow = -1;
+        PacketDistributor.sendToServer(new UpdateTerminalViewPayload(
+                menu.containerId, search.getValue(), sort, descending));
+    }
+
+    private void updateControlLabels() {
+        if (sortButton != null) sortButton.setMessage(sortSymbol());
+        if (directionButton != null) directionButton.setMessage(directionSymbol());
+        if (clearButton != null) clearButton.active = search != null && !search.getValue().isBlank();
+    }
+
+    private Component sortSymbol() {
+        return Component.literal(switch (sort) {
+            case ITEM -> "A";
+            case QUANTITY -> "#";
+            case MOD -> "@";
+        });
+    }
+
+    private Component directionSymbol() {
+        return Component.literal(descending ? "\u2193" : "\u2191");
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
         renderTooltip(graphics, mouseX, mouseY);
+        renderControlTooltip(graphics, mouseX, mouseY);
     }
 
     /** Bypass Screen's post-process blur and render only the normal sharp container backdrop. */
@@ -52,49 +169,9 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
 
     @Override
     protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        int x = leftPos;
-        int y = topPos;
-        drawPanel(graphics, x, y, imageWidth, imageHeight);
-
-        for (int row = 0; row < 5; row++) {
-            for (int column = 0; column < 9; column++) {
-                drawSlot(graphics, x + 8 + column * 18, y + 24 + row * 18);
-            }
-        }
-        for (int row = 0; row < 3; row++) {
-            for (int column = 0; column < 3; column++) {
-                drawSlot(graphics, x + 184 + column * 18, y + 34 + row * 18);
-            }
-        }
-        drawSlot(graphics, x + 248, y + 52);
-
-        for (int row = 0; row < 3; row++) {
-            for (int column = 0; column < 9; column++) {
-                drawSlot(graphics, x + 8 + column * 18, y + 142 + row * 18);
-            }
-        }
-        for (int column = 0; column < 9; column++) {
-            drawSlot(graphics, x + 8 + column * 18, y + 200);
-        }
-
-        drawScrollbar(graphics, x + SCROLL_X, y + SCROLL_Y);
-        graphics.fill(x + 179, y + 18, x + 180, y + 112, DARK);
-        graphics.fill(x + 180, y + 18, x + 181, y + 112, LIGHT);
-        graphics.drawString(font, Component.literal(">"), x + 233, y + 57, TEXT, false);
-    }
-
-    private static void drawPanel(GuiGraphics graphics, int x, int y, int width, int height) {
-        graphics.fill(x, y, x + width, y + height, PANEL);
-        graphics.fill(x, y, x + width, y + 2, LIGHT);
-        graphics.fill(x, y, x + 2, y + height, LIGHT);
-        graphics.fill(x, y + height - 2, x + width, y + height, DARK);
-        graphics.fill(x + width - 2, y, x + width, y + height, DARK);
-    }
-
-    private static void drawSlot(GuiGraphics graphics, int x, int y) {
-        graphics.fill(x - 1, y - 1, x + 17, y + 17, LIGHT);
-        graphics.fill(x - 1, y - 1, x + 16, y + 16, DARK);
-        graphics.fill(x, y, x + 16, y + 16, SLOT);
+        graphics.blit(TEXTURE, leftPos, topPos, 0.0F, 0.0F,
+                imageWidth, imageHeight, imageWidth, imageHeight);
+        drawScrollbar(graphics, leftPos + SCROLL_X, topPos + SCROLL_Y);
     }
 
     private void drawScrollbar(GuiGraphics graphics, int x, int y) {
@@ -105,14 +182,16 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
         int thumbColor = menu.maxScrollRows() > 0 ? PANEL : 0xFF9B9B9B;
         graphics.fill(x + 1, thumbY, x + SCROLL_WIDTH - 1, thumbY + thumbHeight, thumbColor);
         graphics.fill(x + 1, thumbY, x + SCROLL_WIDTH - 1, thumbY + 1, LIGHT);
-        graphics.fill(x + SCROLL_WIDTH - 2, thumbY, x + SCROLL_WIDTH - 1, thumbY + thumbHeight, DARK);
-        graphics.fill(x + 1, thumbY + thumbHeight - 1, x + SCROLL_WIDTH - 1, thumbY + thumbHeight, DARK);
+        graphics.fill(x + SCROLL_WIDTH - 2, thumbY,
+                x + SCROLL_WIDTH - 1, thumbY + thumbHeight, DARK);
+        graphics.fill(x + 1, thumbY + thumbHeight - 1,
+                x + SCROLL_WIDTH - 1, thumbY + thumbHeight, DARK);
     }
 
     private int thumbHeight() {
-        int totalRows = 5 + menu.maxScrollRows();
-        if (totalRows <= 5) return SCROLL_HEIGHT - 2;
-        return Math.max(MIN_THUMB_HEIGHT, Math.round((SCROLL_HEIGHT - 2) * (5.0F / totalRows)));
+        int totalRows = 6 + menu.maxScrollRows();
+        if (totalRows <= 6) return SCROLL_HEIGHT - 2;
+        return Math.max(MIN_THUMB_HEIGHT, Math.round((SCROLL_HEIGHT - 2) * (6.0F / totalRows)));
     }
 
     private int thumbOffset(int thumbHeight) {
@@ -160,12 +239,12 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
     }
 
     private boolean overNetworkInventory(double mouseX, double mouseY) {
-        return mouseX >= leftPos + 7 && mouseX < leftPos + SCROLL_X + SCROLL_WIDTH
-                && mouseY >= topPos + 23 && mouseY < topPos + SCROLL_Y + SCROLL_HEIGHT + 1;
+        return mouseX >= leftPos + 7 && mouseX < leftPos + 175
+                && mouseY >= topPos + SCROLL_Y && mouseY < topPos + SCROLL_Y + SCROLL_HEIGHT;
     }
 
     private boolean overScrollbar(double mouseX, double mouseY) {
-        return mouseX >= leftPos + SCROLL_X && mouseX < leftPos + SCROLL_X + SCROLL_WIDTH
+        return mouseX >= leftPos + SCROLL_X - 2 && mouseX < leftPos + SCROLL_X + SCROLL_WIDTH + 1
                 && mouseY >= topPos + SCROLL_Y && mouseY < topPos + SCROLL_Y + SCROLL_HEIGHT;
     }
 
@@ -187,10 +266,54 @@ public final class NetworkTerminalScreen extends AbstractContainerScreen<Network
         }
     }
 
+    private void renderControlTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        if (sortButton != null && sortButton.isHovered()) {
+            graphics.renderTooltip(font, Component.translatable(
+                    "screen.mobsstorage.terminal.sort_tooltip",
+                    Component.translatable("screen.mobsstorage.terminal.sort." + sort.name().toLowerCase())),
+                    mouseX, mouseY);
+        } else if (directionButton != null && directionButton.isHovered()) {
+            graphics.renderTooltip(font, Component.translatable(descending
+                    ? "screen.mobsstorage.terminal.descending"
+                    : "screen.mobsstorage.terminal.ascending"), mouseX, mouseY);
+        } else if (clearButton != null && clearButton.isHovered()) {
+            graphics.renderTooltip(font, Component.translatable(
+                    "screen.mobsstorage.terminal.clear"), mouseX, mouseY);
+        } else if (helpButton != null && helpButton.isHovered()) {
+            graphics.renderTooltip(font, List.of(
+                    Component.translatable("screen.mobsstorage.terminal.help.title"),
+                    Component.translatable("screen.mobsstorage.terminal.help.name"),
+                    Component.translatable("screen.mobsstorage.terminal.help.mod"),
+                    Component.translatable("screen.mobsstorage.terminal.help.id"),
+                    Component.translatable("screen.mobsstorage.terminal.help.tag"),
+                    Component.translatable("screen.mobsstorage.terminal.help.tooltip"),
+                    Component.translatable("screen.mobsstorage.terminal.help.logic")
+            ), Optional.empty(), mouseX, mouseY);
+        } else if (search != null && search.isHovered() && !searchError.equals(CommonComponents.EMPTY)) {
+            graphics.renderTooltip(font, searchError, mouseX, mouseY);
+        }
+    }
+
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
-        graphics.drawString(font, title, titleLabelX, titleLabelY, TEXT, false);
-        graphics.drawString(font, Component.translatable("screen.mobsstorage.terminal.crafting"), 184, 22, TEXT, false);
+        String fittedTitle = font.plainSubstrByWidth(title.getString(), 161);
+        graphics.drawString(font, fittedTitle, 7, 6, TEXT, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.terminal.crafting"),
+                29, 148, TEXT, false);
         graphics.drawString(font, playerInventoryTitle, inventoryLabelX, inventoryLabelY, TEXT, false);
+        if (search != null && !search.getValue().isBlank() && networkSlotsEmpty()) {
+            Component message = searchError.equals(CommonComponents.EMPTY)
+                    ? Component.translatable("screen.mobsstorage.terminal.no_results")
+                    : Component.translatable("screen.mobsstorage.terminal.invalid_search");
+            graphics.drawCenteredString(font, message, 87, 85,
+                    searchError.equals(CommonComponents.EMPTY) ? TEXT : 0xFFAA3333);
+        }
+    }
+
+    private boolean networkSlotsEmpty() {
+        for (int slot = NetworkTerminalMenu.NETWORK_START; slot < NetworkTerminalMenu.NETWORK_END; slot++) {
+            if (menu.getSlot(slot).hasItem()) return false;
+        }
+        return true;
     }
 }

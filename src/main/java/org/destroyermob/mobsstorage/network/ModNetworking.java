@@ -10,6 +10,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleService;
+import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
 import org.destroyermob.mobsstorage.networking.NetworkNodeData;
@@ -17,7 +18,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "6";
+    private static final String NETWORK_VERSION = "7";
 
     private ModNetworking() {
     }
@@ -45,6 +46,8 @@ public final class ModNetworking {
         registrar.playToServer(InventoryActionPayload.TYPE, InventoryActionPayload.STREAM_CODEC, ModNetworking::handleInventoryAction);
         registrar.playToServer(SaveCarryRulesPayload.TYPE, SaveCarryRulesPayload.STREAM_CODEC,
                 ModNetworking::handleSaveCarryRules);
+        registrar.playToServer(UpdateTerminalViewPayload.TYPE, UpdateTerminalViewPayload.STREAM_CODEC,
+                ModNetworking::handleUpdateTerminalView);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -96,6 +99,16 @@ public final class ModNetworking {
     private static void handleSaveCarryRules(SaveCarryRulesPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) CarryRuleService.save(player, payload.rules());
+        });
+    }
+
+    private static void handleUpdateTerminalView(UpdateTerminalViewPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player
+                    && player.containerMenu.containerId == payload.containerId()
+                    && player.containerMenu instanceof NetworkTerminalMenu menu) {
+                menu.updateView(payload.query(), payload.sort(), payload.descending());
+            }
         });
     }
 }

@@ -3,25 +3,32 @@ package org.destroyermob.mobsstorage.menu;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import org.destroyermob.mobsstorage.networking.NetworkInventoryService;
+import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
 import org.jetbrains.annotations.Nullable;
 
 final class NetworkTerminalView implements Container {
     static final int COLUMNS = 9;
-    static final int VISIBLE_ROWS = 5;
+    static final int VISIBLE_ROWS = 6;
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> ingredientItems;
     private final List<NetworkInventoryService.StorageSlot> ingredientSlots;
     private final Container ingredientIndex = new IngredientIndex();
     @Nullable private final NetworkInterfaceBlockEntity endpoint;
+    private String query = "";
+    private boolean queryValid = true;
+    private NetworkTerminalSort sort = NetworkTerminalSort.ITEM;
+    private boolean descending;
     private int scrollRow;
     private int maxScrollRows;
 
@@ -41,11 +48,17 @@ final class NetworkTerminalView implements Container {
                     .filter(entry -> ItemStack.isSameItemSameComponents(entry.sample, stored))
                     .findFirst().orElse(null);
             if (match == null) entries.add(new Entry(stored.copyWithCount(1), stored.getCount()));
-            else match.count += stored.getCount();
+            else match.count = (int) Math.min(Integer.MAX_VALUE, (long) match.count + stored.getCount());
         }
-        entries.sort(Comparator.comparing((Entry entry) ->
-                        BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).toString())
-                .thenComparing(entry -> entry.sample.getHoverName().getString()));
+        if (!queryValid) {
+            entries.clear();
+        } else if (!query.isBlank()) {
+            Item.TooltipContext tooltipContext = endpoint.getLevel() == null
+                    ? Item.TooltipContext.EMPTY : Item.TooltipContext.of(endpoint.getLevel());
+            entries.removeIf(entry -> !FilterRules.matches(entry.sample, List.of(query), tooltipContext));
+        }
+        Comparator<Entry> comparator = comparator();
+        entries.sort(descending ? comparator.reversed() : comparator);
         List<ItemStack> flattened = new ArrayList<>();
         for (Entry entry : entries) {
             flattened.add(entry.sample.copyWithCount(entry.count));
@@ -58,6 +71,15 @@ final class NetworkTerminalView implements Container {
             int index = visibleStart + slot;
             items.set(slot, index < flattened.size() ? flattened.get(index) : ItemStack.EMPTY);
         }
+    }
+
+    void setView(String query, NetworkTerminalSort sort, boolean descending) {
+        this.query = query == null ? "" : query.trim();
+        this.queryValid = this.query.isBlank() || FilterRules.validate(List.of(this.query)).isEmpty();
+        this.sort = sort == null ? NetworkTerminalSort.ITEM : sort;
+        this.descending = descending;
+        this.scrollRow = 0;
+        refresh();
     }
 
     void setScrollRow(int row) {
@@ -75,6 +97,24 @@ final class NetworkTerminalView implements Container {
 
     Container ingredientIndex() {
         return ingredientIndex;
+    }
+
+    private Comparator<Entry> comparator() {
+        Comparator<Entry> itemOrder = Comparator
+                .comparing((Entry entry) -> entry.sample.getHoverName().getString().toLowerCase(Locale.ROOT))
+                .thenComparing(this::itemId);
+        return switch (sort) {
+            case ITEM -> itemOrder;
+            case QUANTITY -> Comparator.comparingInt((Entry entry) -> entry.count)
+                    .thenComparing(itemOrder);
+            case MOD -> Comparator.comparing((Entry entry) ->
+                            BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).getNamespace())
+                    .thenComparing(itemOrder);
+        };
+    }
+
+    private String itemId(Entry entry) {
+        return BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).toString();
     }
 
     @Override public int getContainerSize() { return VISIBLE_SIZE; }
