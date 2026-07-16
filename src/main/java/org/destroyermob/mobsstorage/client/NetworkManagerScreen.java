@@ -1,6 +1,7 @@
 package org.destroyermob.mobsstorage.client;
 
 import java.util.List;
+import java.util.Optional;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -31,6 +32,7 @@ public final class NetworkManagerScreen extends Screen {
     private static final int SLOT_MUTED = 0xFFE0E0E0;
     private static final int ACTIVE = 0xFF55AA55;
     private static final int WARNING = 0xFFFFD070;
+    private static final int ERROR = 0xFFFF7777;
 
     private final List<NetworkSnapshot> networks;
     private int selectedIndex;
@@ -43,14 +45,14 @@ public final class NetworkManagerScreen extends Screen {
     private EditBox memberName;
 
     public NetworkManagerScreen(OpenNetworkManagerPayload payload) {
-        this(payload, false);
+        this(payload, Page.STORAGE.ordinal());
     }
 
-    NetworkManagerScreen(OpenNetworkManagerPayload payload, boolean accessPage) {
+    NetworkManagerScreen(OpenNetworkManagerPayload payload, int pageIndex) {
         super(Component.translatable("screen.mobsstorage.network.title"));
         this.networks = payload.networks();
         this.selectedIndex = initialSelection();
-        this.page = accessPage ? Page.ACCESS : Page.STORAGE;
+        this.page = Page.values()[clamp(pageIndex, 0, Page.values().length - 1)];
     }
 
     @Override
@@ -103,14 +105,19 @@ public final class NetworkManagerScreen extends Screen {
         visibility.active = selected.owner();
 
         int tabY = top + 78;
-        int tabWidth = (contentWidth - 4) / 2;
+        int tabWidth = (contentWidth - 8) / 3;
         Button storageTab = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.network.storage_tab"), button -> setPage(Page.STORAGE))
                 .bounds(x, tabY, tabWidth, 20).build());
         storageTab.active = page != Page.STORAGE;
+        Button diagnosticsTab = addRenderableWidget(Button.builder(
+                Component.translatable("screen.mobsstorage.network.diagnostics_tab"), button -> setPage(Page.DIAGNOSTICS))
+                .bounds(x + tabWidth + 4, tabY, tabWidth, 20).build());
+        diagnosticsTab.active = page != Page.DIAGNOSTICS;
         Button accessTab = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.network.access_tab"), button -> setPage(Page.ACCESS))
-                .bounds(x + tabWidth + 4, tabY, tabWidth, 20).build());
+                .bounds(x + (tabWidth + 4) * 2, tabY,
+                        contentWidth - (tabWidth + 4) * 2, 20).build());
         accessTab.active = page != Page.ACCESS;
 
         if (page == Page.ACCESS && selected.owner()) {
@@ -125,6 +132,11 @@ public final class NetworkManagerScreen extends Screen {
         }
 
         int bottomY = panelBottom() - 28;
+        if (page == Page.DIAGNOSTICS) {
+            addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.refresh"), button ->
+                    send(NetworkActionPayload.Action.REFRESH, selected.id(), NetworkActionPayload.NONE, ""))
+                    .bounds(x, bottomY, 62, 20).build());
+        }
         if (selected.owner()) {
             addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.delete"), button ->
                     send(NetworkActionPayload.Action.DELETE, selected.id(), NetworkActionPayload.NONE, ""))
@@ -142,6 +154,7 @@ public final class NetworkManagerScreen extends Screen {
         drawPanel(graphics, mouseX, mouseY);
         super.render(graphics, mouseX, mouseY, partialTick);
         drawForeground(graphics, mouseX, mouseY);
+        drawDiagnosticTooltip(graphics, mouseX, mouseY);
     }
 
     /** Prevent Screen.render() from invoking Minecraft's post-process blur after the panel is drawn. */
@@ -163,6 +176,7 @@ public final class NetworkManagerScreen extends Screen {
         if (selected != null) {
             drawInset(graphics, contentLeft(), statusY(), contentWidth(), 26, SLOT);
             if (page == Page.STORAGE) drawStorageCards(graphics, selected, mouseX, mouseY);
+            else if (page == Page.DIAGNOSTICS) drawDiagnosticCards(graphics, selected, mouseX, mouseY);
             else drawMemberCards(graphics, selected, mouseX, mouseY);
         }
     }
@@ -191,6 +205,7 @@ public final class NetworkManagerScreen extends Screen {
                         : Component.translatable("screen.mobsstorage.network.origin", origin.name()),
                 contentLeft() + 6, statusY() + 15, origin == null ? WARNING : ACTIVE, false);
         if (page == Page.STORAGE) drawStorageText(graphics, selected);
+        else if (page == Page.DIAGNOSTICS) drawDiagnosticsText(graphics, selected);
         else drawMemberText(graphics, selected);
     }
 
@@ -272,6 +287,81 @@ public final class NetworkManagerScreen extends Screen {
         }
     }
 
+    private void drawDiagnosticCards(GuiGraphics graphics, NetworkSnapshot selected, int mouseX, int mouseY) {
+        int listY = pageListTop();
+        for (int visible = 0; visible < visiblePageRows(); visible++) {
+            int index = nodeOffset + visible;
+            if (index >= selected.nodes().size()) break;
+            int y = listY + visible * 27;
+            boolean hovered = inside(mouseX, mouseY, contentLeft(), y, contentWidth(), 23);
+            drawInset(graphics, contentLeft(), y, contentWidth(), 23, hovered ? SLOT_HOVER : SLOT);
+            graphics.fill(contentLeft() + 2, y + 2, contentLeft() + 5, y + 21,
+                    diagnosticColor(selected.nodes().get(index).status()));
+        }
+    }
+
+    private void drawDiagnosticsText(GuiGraphics graphics, NetworkSnapshot selected) {
+        long issues = selected.nodes().stream().filter(node -> !node.status().healthy()).count();
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.network.diagnostics_heading"),
+                contentLeft(), pageHeadingY(), TEXT, false);
+        graphics.drawString(font, Component.translatable("screen.mobsstorage.network.diagnostics_summary",
+                        selected.nodes().size() - issues, issues),
+                contentLeft(), pageHeadingY() + 11, issues == 0 ? ACTIVE : WARNING, false);
+        if (selected.nodes().isEmpty()) {
+            graphics.drawString(font, Component.translatable("screen.mobsstorage.network.no_storages"),
+                    contentLeft(), pageListTop() + 4, MUTED, false);
+            return;
+        }
+        for (int visible = 0; visible < visiblePageRows(); visible++) {
+            int index = nodeOffset + visible;
+            if (index >= selected.nodes().size()) break;
+            NetworkSnapshot.Node node = selected.nodes().get(index);
+            int y = pageListTop() + visible * 27;
+            Item icon = BuiltInRegistries.ITEM.get(node.icon());
+            if (icon != Items.AIR) graphics.renderFakeItem(icon.getDefaultInstance(), contentLeft() + 7, y + 3);
+            int textX = contentLeft() + 29;
+            graphics.drawString(font, font.plainSubstrByWidth(node.name(), contentWidth() - 138),
+                    textX, y + 3, SLOT_TEXT, false);
+            Component status = Component.translatable("screen.mobsstorage.network.status."
+                    + node.status().name().toLowerCase());
+            graphics.drawString(font, status, textX, y + 13, diagnosticColor(node.status()), false);
+            if (node.totalSlots() > 0) {
+                String capacity = Component.translatable("screen.mobsstorage.network.slot_capacity",
+                        node.usedSlots(), node.totalSlots()).getString();
+                graphics.drawString(font, capacity, panelRight() - 16 - font.width(capacity),
+                        y + 7, SLOT_MUTED, false);
+            }
+        }
+    }
+
+    private static int diagnosticColor(NetworkSnapshot.NodeStatus status) {
+        return switch (status) {
+            case ONLINE -> ACTIVE;
+            case UNLOADED -> WARNING;
+            case UNAVAILABLE, MISSING, WRONG_NETWORK, NO_ORIGIN, OUT_OF_RANGE -> ERROR;
+        };
+    }
+
+    private void drawDiagnosticTooltip(GuiGraphics graphics, int mouseX, int mouseY) {
+        NetworkSnapshot selected = selected();
+        if (page != Page.DIAGNOSTICS || selected == null
+                || !inside(mouseX, mouseY, contentLeft(), pageListTop(),
+                contentWidth(), visiblePageRows() * 27)) return;
+        int index = nodeOffset + (mouseY - pageListTop()) / 27;
+        if (index < 0 || index >= selected.nodes().size()) return;
+        NetworkSnapshot.Node node = selected.nodes().get(index);
+        Component location = Component.literal(node.pos().dimension().location() + " · "
+                + node.pos().pos().getX() + ", " + node.pos().pos().getY() + ", " + node.pos().pos().getZ());
+        Component status = Component.translatable("screen.mobsstorage.network.status."
+                + node.status().name().toLowerCase());
+        List<Component> lines = node.totalSlots() > 0
+                ? List.of(Component.literal(node.name()), status, location,
+                Component.translatable("screen.mobsstorage.network.slot_capacity",
+                        node.usedSlots(), node.totalSlots()))
+                : List.of(Component.literal(node.name()), status, location);
+        graphics.renderTooltip(font, lines, Optional.empty(), mouseX, mouseY);
+    }
+
     private void drawMemberCards(GuiGraphics graphics, NetworkSnapshot selected, int mouseX, int mouseY) {
         int listY = pageListTop();
         for (int visible = 0; visible < visiblePageRows(); visible++) {
@@ -345,7 +435,7 @@ public final class NetworkManagerScreen extends Screen {
             networkOffset = clamp(networkOffset + direction, 0, Math.max(0, networks.size() - visibleNetworkRows()));
             return true;
         }
-        if (selected != null && page == Page.STORAGE) {
+        if (selected != null && page != Page.ACCESS) {
             nodeOffset = clamp(nodeOffset + direction, 0, Math.max(0, selected.nodes().size() - visiblePageRows()));
             return true;
         }
@@ -358,11 +448,13 @@ public final class NetworkManagerScreen extends Screen {
 
     private void setPage(Page value) {
         page = value;
+        nodeOffset = 0;
+        memberOffset = 0;
         rebuildWidgets();
     }
 
-    boolean accessPage() {
-        return page == Page.ACCESS;
+    int pageIndex() {
+        return page.ordinal();
     }
 
     private void send(NetworkActionPayload.Action action, java.util.UUID network, java.util.UUID subject, String value) {
@@ -399,7 +491,7 @@ public final class NetworkManagerScreen extends Screen {
         return page == Page.ACCESS && selected() != null && selected().owner() ? base + 24 : base;
     }
     private int visiblePageRows() {
-        int row = page == Page.STORAGE ? 27 : 24;
+        int row = page == Page.ACCESS ? 24 : 27;
         return Math.max(0, (panelBottom() - 34 - pageListTop()) / row);
     }
     private static void drawRaisedPanel(GuiGraphics graphics, int x, int y, int width, int height) {
@@ -424,5 +516,5 @@ public final class NetworkManagerScreen extends Screen {
     private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
     @Override public boolean isPauseScreen() { return false; }
 
-    private enum Page { STORAGE, ACCESS }
+    private enum Page { STORAGE, DIAGNOSTICS, ACCESS }
 }

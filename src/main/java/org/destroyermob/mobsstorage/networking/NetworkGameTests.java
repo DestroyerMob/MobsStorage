@@ -50,6 +50,7 @@ import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalSort;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
+import org.destroyermob.mobsstorage.network.NetworkSnapshot;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.registry.ModItems;
@@ -259,7 +260,7 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void manualInsertionFiltersLocallyInsteadOfRoutingAcrossNetwork(GameTestHelper helper) {
+    public static void manualInsertionRoutesToMatchingNetworkStorage(GameTestHelper helper) {
         helper.setBlock(FIRST, Blocks.CHEST);
         helper.setBlock(SECOND, Blocks.CHEST);
         ChestBlockEntity ingots = helper.getBlockEntity(FIRST);
@@ -281,17 +282,30 @@ public final class NetworkGameTests {
         gems.setData(ModAttachments.NETWORK_NODE,
                 new NetworkNodeData(network.id(), "Gems", 0, gemsPos));
 
-        ChestMenu menu = ChestMenu.threeRows(20, player.getInventory(), ingots);
+        player.getInventory().setItem(9, new ItemStack(Items.GOLD_INGOT, 2));
+        ChestMenu menu = ChestMenu.threeRows(20, player.getInventory(), gems);
         player.containerMenu = menu;
-        menu.setCarried(new ItemStack(Items.DIAMOND));
+        menu.setCarried(new ItemStack(Items.IRON_INGOT, 3));
         menu.clicked(0, 0, ClickType.PICKUP, player);
-        helper.assertTrue(ingots.isEmpty() && gems.isEmpty() && menu.getCarried().is(Items.DIAMOND),
-                "Manual insertion routed a rejected item into another network chest");
+        helper.assertTrue(ingots.getItem(0).is(Items.IRON_INGOT)
+                        && ingots.getItem(0).getCount() == 3 && gems.isEmpty() && menu.getCarried().isEmpty(),
+                "Manual insertion did not route rejected ingots into matching network storage");
 
-        menu.setCarried(new ItemStack(Items.IRON_INGOT));
+        menu.setCarried(new ItemStack(Items.DIAMOND, 2));
         menu.clicked(0, 0, ClickType.PICKUP, player);
-        helper.assertTrue(ingots.getItem(0).is(Items.IRON_INGOT) && menu.getCarried().isEmpty(),
-                "Manual insertion did not accept an item allowed by the local chest filter");
+        helper.assertTrue(gems.getItem(0).is(Items.DIAMOND) && gems.getItem(0).getCount() == 2
+                        && menu.getCarried().isEmpty(),
+                "Manual insertion routed an item that the opened storage accepted locally");
+
+        menu.setCarried(new ItemStack(Items.STICK));
+        menu.clicked(1, 0, ClickType.PICKUP, player);
+        helper.assertTrue(menu.getCarried().is(Items.STICK),
+                "Manual insertion consumed an item with no valid network destination");
+
+        menu.clicked(27, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(ingots.getItem(1).is(Items.GOLD_INGOT)
+                        && ingots.getItem(1).getCount() == 2 && player.getInventory().getItem(9).isEmpty(),
+                "Shift-click insertion did not route rejected ingots into matching network storage");
         helper.succeed();
     }
 
@@ -392,7 +406,7 @@ public final class NetworkGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void carryRuleRefillPreservesReservedSlots(GameTestHelper helper) {
+    public static void carryRuleRefillTargetsConfiguredSlotWithoutConsumingEmptySlots(GameTestHelper helper) {
         helper.setBlock(FIRST, Blocks.CHEST);
         ChestBlockEntity chest = helper.getBlockEntity(FIRST);
         chest.setItem(0, new ItemStack(Items.IRON_INGOT, 64));
@@ -413,7 +427,7 @@ public final class NetworkGameTests {
         chest.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Supplies", 0, helper.absolutePos(FIRST)));
 
-        CarryRule rule = new CarryRule("minecraft:iron_ingot", ItemStack.EMPTY, 16, 32, 64);
+        CarryRule rule = new CarryRule(0, "minecraft:iron_ingot", ItemStack.EMPTY, 16, 32, 64);
         CarryRuleSet rules = new CarryRuleSet(List.of(rule), 2);
         int inserted = NetworkRefillService.refillCarryRule(player, rules, 0, 24, 2);
         helper.assertTrue(inserted == 24 && player.getInventory().getItem(0).getCount() == 32,
@@ -564,16 +578,18 @@ public final class NetworkGameTests {
         CraftingRecipe inputRecipe = (CraftingRecipe) helper.getLevel().getRecipeManager()
                 .byKey(MobsStorage.id("network_input")).orElseThrow().value();
         ItemStack inputResult = inputRecipe.assemble(CraftingInput.of(2, 2, List.of(
-                new ItemStack(ModItems.NETWORK_INTERFACE.get()), new ItemStack(Items.HOPPER),
+                new ItemStack(Items.HOPPER), new ItemStack(Items.ENDER_PEARL),
                 new ItemStack(Items.BLUE_DYE), ItemStack.EMPTY)), helper.getLevel().registryAccess());
-        helper.assertTrue(inputResult.is(ModItems.NETWORK_INPUT.get()), "Input recipe did not produce a Network Input");
+        helper.assertTrue(inputResult.is(ModItems.NETWORK_INPUT.get()),
+                "Hopper, ender pearl, and blue dye did not produce a Network Input");
 
         CraftingRecipe outputRecipe = (CraftingRecipe) helper.getLevel().getRecipeManager()
                 .byKey(MobsStorage.id("network_output")).orElseThrow().value();
         ItemStack output = outputRecipe.assemble(CraftingInput.of(2, 2, List.of(
-                new ItemStack(ModItems.NETWORK_INTERFACE.get()), new ItemStack(Items.HOPPER),
+                new ItemStack(Items.HOPPER), new ItemStack(Items.ENDER_PEARL),
                 new ItemStack(Items.ORANGE_DYE), ItemStack.EMPTY)), helper.getLevel().registryAccess());
-        helper.assertTrue(output.is(ModItems.NETWORK_OUTPUT.get()), "Output recipe did not produce a Network Output");
+        helper.assertTrue(output.is(ModItems.NETWORK_OUTPUT.get()),
+                "Hopper, ender pearl, and orange dye did not produce a Network Output");
         helper.succeed();
     }
 
@@ -679,25 +695,29 @@ public final class NetworkGameTests {
         storage.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Storage", 0, helper.absolutePos(SECOND)));
         storage.setItem(0, new ItemStack(Items.REDSTONE, 5));
+        storage.setItem(1, new ItemStack(Items.DIAMOND, 3));
+        output.setOutputFilter("#c:gems");
 
         IItemHandler handler = helper.getLevel().getCapability(
                 Capabilities.ItemHandler.BLOCK, helper.absolutePos(FIRST), Direction.DOWN);
         helper.assertTrue(handler != null, "Network Output did not expose its machine capability");
         helper.assertTrue(handler.insertItem(0, new ItemStack(Items.DIAMOND), false).is(Items.DIAMOND),
                 "Network Output unexpectedly allowed machine insertion");
-        int redstoneSlot = -1;
+        int diamondSlot = -1;
         for (int slot = 0; slot < handler.getSlots(); slot++) {
-            if (handler.getStackInSlot(slot).is(Items.REDSTONE)) {
-                redstoneSlot = slot;
+            helper.assertFalse(handler.getStackInSlot(slot).is(Items.REDSTONE),
+                    "Filtered Network Output exposed a rejected item");
+            if (handler.getStackInSlot(slot).is(Items.DIAMOND)) {
+                diamondSlot = slot;
                 break;
             }
         }
-        helper.assertTrue(redstoneSlot >= 0, "Network Output did not expose stored items");
-        ItemStack extracted = handler.extractItem(redstoneSlot, 2, false);
-        helper.assertTrue(extracted.is(Items.REDSTONE) && extracted.getCount() == 2,
-                "Network Output did not extract from network storage");
-        helper.assertTrue(storage.getItem(0).getCount() == 3,
-                "Network Output extraction did not remove the stored items");
+        helper.assertTrue(diamondSlot >= 0, "Filtered Network Output did not expose matching gems");
+        ItemStack extracted = handler.extractItem(diamondSlot, 2, false);
+        helper.assertTrue(extracted.is(Items.DIAMOND) && extracted.getCount() == 2,
+                "Filtered Network Output did not extract a matching item");
+        helper.assertTrue(storage.getItem(1).getCount() == 1 && storage.getItem(0).getCount() == 5,
+                "Filtered Network Output removed a rejected item");
 
         BlockPos hopperBelow = FIRST.below();
         BlockState hopperState = Blocks.HOPPER.defaultBlockState()
@@ -707,8 +727,9 @@ public final class NetworkGameTests {
         HopperBlockEntity hopper = helper.getBlockEntity(hopperBelow);
         helper.assertTrue(HopperBlockEntity.suckInItems(helper.getLevel(), hopper),
                 "Vanilla hopper did not pull through the Network Output");
-        helper.assertTrue(hopper.getItem(0).is(Items.REDSTONE) && storage.getItem(0).getCount() == 2,
-                "Hopper output did not transfer exactly one network item");
+        helper.assertTrue(hopper.getItem(0).is(Items.DIAMOND) && storage.getItem(1).isEmpty()
+                        && storage.getItem(0).getCount() == 5,
+                "Hopper output ignored the configured extraction filter");
         helper.succeed();
     }
 
@@ -764,6 +785,18 @@ public final class NetworkGameTests {
                 label(helper.absolutePos(THIRD), "#c:raw_materials"));
         rawMaterials.setItem(0, new ItemStack(Items.RAW_IRON, 5));
 
+        NetworkSnapshot diagnostics = NetworkService.snapshot(
+                helper.getLevel().getServer(), player, network, network.id());
+        NetworkSnapshot.Node rawDiagnostic = diagnostics.nodes().stream()
+                .filter(node -> node.pos().equals(rawPos)).findFirst().orElseThrow();
+        helper.assertTrue(rawDiagnostic.status() == NetworkSnapshot.NodeStatus.ONLINE
+                        && rawDiagnostic.usedSlots() == 1 && rawDiagnostic.totalSlots() == 27,
+                "Network diagnostics did not report live storage capacity");
+        helper.assertTrue(diagnostics.nodes().stream()
+                        .filter(node -> node.pos().equals(terminalPos) || node.pos().equals(secondTerminalPos))
+                        .allMatch(node -> node.status() == NetworkSnapshot.NodeStatus.ONLINE),
+                "Network diagnostics marked usable interfaces as unhealthy");
+
         IItemHandler interfaceHandler = helper.getLevel().getCapability(
                 Capabilities.ItemHandler.BLOCK, helper.absolutePos(FIRST), Direction.UP);
         helper.assertTrue(interfaceHandler == null,
@@ -777,6 +810,21 @@ public final class NetworkGameTests {
                 "Interface source range extended beyond 256 blocks");
 
         NetworkTerminalMenu menu = new NetworkTerminalMenu(7, player.getInventory(), terminal);
+        Slot firstNetworkSlot = menu.getSlot(NetworkTerminalMenu.NETWORK_START);
+        Slot firstCraftingSlot = menu.getSlot(NetworkTerminalMenu.CRAFT_START);
+        Slot resultSlot = menu.getSlot(NetworkTerminalMenu.RESULT_SLOT);
+        Slot firstPlayerSlot = menu.getSlot(NetworkTerminalMenu.PLAYER_START);
+        Slot firstHotbarSlot = menu.getSlot(NetworkTerminalMenu.HOTBAR_START);
+        helper.assertTrue(firstNetworkSlot.x == 8 && firstNetworkSlot.y == 38,
+                "Network item slot was not aligned to the texture interior");
+        helper.assertTrue(firstCraftingSlot.x == 30 && firstCraftingSlot.y == 161,
+                "Crafting item slot was not aligned to the texture interior");
+        helper.assertTrue(resultSlot.x == 124 && resultSlot.y == 179,
+                "Crafting result item was not centered in its texture well");
+        helper.assertTrue(firstPlayerSlot.x == 8 && firstPlayerSlot.y == 228,
+                "Player inventory slot was not aligned to the texture interior");
+        helper.assertTrue(firstHotbarSlot.x == 8 && firstHotbarSlot.y == 286,
+                "Player hotbar slot was not aligned to the texture interior");
         int visibleRawSlot = -1;
         for (int slot = NetworkTerminalMenu.NETWORK_START; slot < NetworkTerminalMenu.NETWORK_END; slot++) {
             if (menu.getSlot(slot).getItem().is(Items.RAW_IRON)) {
@@ -790,9 +838,30 @@ public final class NetworkGameTests {
                 "Recipe transfer could still consume an aggregate display slot");
 
         menu.setCarried(new ItemStack(Items.GOLD_INGOT, 2));
+        menu.clicked(NetworkTerminalMenu.NETWORK_START, 1, ClickType.PICKUP, player);
+        helper.assertTrue(menu.getCarried().is(Items.GOLD_INGOT)
+                        && menu.getCarried().getCount() == 1 && count(Items.GOLD_INGOT, ingots) == 1,
+                "Right-clicking the terminal did not deposit exactly one carried item");
         menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
         helper.assertTrue(menu.getCarried().isEmpty() && count(Items.GOLD_INGOT, ingots) == 2,
                 "Crafting terminal did not deposit carried items through network routing");
+
+        player.getInventory().setItem(9, new ItemStack(Items.GOLD_INGOT, 3));
+        ItemStack shifted = menu.quickMoveStack(player, NetworkTerminalMenu.PLAYER_START);
+        helper.assertTrue(shifted.is(Items.GOLD_INGOT) && shifted.getCount() == 3
+                        && player.getInventory().getItem(9).isEmpty()
+                        && count(Items.GOLD_INGOT, ingots) == 5,
+                "Shift-clicking the terminal did not deposit the player stack cleanly");
+
+        StorageResolver.setLabel(helper.getLevel(), List.of(overflow),
+                label(helper.absolutePos(FOURTH), "#c:ingots"));
+        player.getInventory().setItem(10, new ItemStack(Items.STICK, 3));
+        ItemStack rejectedShift = menu.quickMoveStack(player, NetworkTerminalMenu.PLAYER_START + 1);
+        helper.assertTrue(rejectedShift.isEmpty()
+                        && player.getInventory().getItem(10).is(Items.STICK)
+                        && player.getInventory().getItem(10).getCount() == 3,
+                "Rejected terminal shift-click moved the stack to another inventory row");
+        StorageResolver.clearLabel(helper.getLevel(), List.of(overflow));
 
         menu.updateView("@minecraft raw -gold", NetworkTerminalSort.ITEM, false);
         helper.assertTrue(menu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().is(Items.RAW_IRON)

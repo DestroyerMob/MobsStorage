@@ -22,6 +22,7 @@ import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.items.IItemHandler;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
+import org.destroyermob.mobsstorage.inventory.CarryRule;
 import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 
@@ -111,6 +112,7 @@ public final class NetworkRefillService {
     public static int refillCarryRule(ServerPlayer player, CarryRuleSet ruleSet, int ruleIndex,
                                       int wanted, int reservedEmptySlots) {
         if (wanted <= 0 || ruleIndex < 0 || ruleIndex >= ruleSet.rules().size()) return 0;
+        CarryRule rule = ruleSet.rules().get(ruleIndex);
         int insertedTotal = 0;
         Item.TooltipContext tooltipContext = Item.TooltipContext.of(player.serverLevel());
         for (StorageNetwork network : StorageNetworkSavedData.get(player.server).all()) {
@@ -129,11 +131,15 @@ public final class NetworkRefillService {
                     for (int slot = 0; slot < container.getContainerSize() && insertedTotal < wanted; slot++) {
                         ItemStack stored = container.getItem(slot);
                         if (!CarryRuleService.belongsToRule(ruleSet, ruleIndex, stored, tooltipContext)) continue;
-                        int capacity = inventoryCapacity(player, stored, reservedEmptySlots);
+                        int capacity = rule.slotted()
+                                ? carrySlotCapacity(player, rule.inventorySlot(), stored)
+                                : inventoryCapacity(player, stored, reservedEmptySlots);
                         int amount = Math.min(Math.min(wanted - insertedTotal, stored.getCount()), capacity);
                         if (amount <= 0) continue;
                         ItemStack removed = container.removeItem(slot, amount);
-                        int inserted = insertIntoInventory(player, removed, reservedEmptySlots);
+                        int inserted = rule.slotted()
+                                ? insertIntoCarrySlot(player, rule.inventorySlot(), removed)
+                                : insertIntoInventory(player, removed, reservedEmptySlots);
                         insertedTotal += inserted;
                         changed |= inserted > 0;
                         if (!removed.isEmpty()) NetworkInventoryService.insertInto(List.of(container), removed);
@@ -148,6 +154,29 @@ public final class NetworkRefillService {
         }
         if (insertedTotal > 0) player.getInventory().setChanged();
         return insertedTotal;
+    }
+
+    private static int carrySlotCapacity(ServerPlayer player, int inventorySlot, ItemStack candidate) {
+        if (inventorySlot < 0 || inventorySlot >= 36) return 0;
+        ItemStack stored = player.getInventory().getItem(inventorySlot);
+        if (stored.isEmpty()) return candidate.getMaxStackSize();
+        if (!ItemStack.isSameItemSameComponents(stored, candidate)) return 0;
+        return Math.max(0, stored.getMaxStackSize() - stored.getCount());
+    }
+
+    private static int insertIntoCarrySlot(ServerPlayer player, int inventorySlot, ItemStack source) {
+        if (source.isEmpty() || inventorySlot < 0 || inventorySlot >= 36) return 0;
+        int original = source.getCount();
+        ItemStack stored = player.getInventory().getItem(inventorySlot);
+        if (stored.isEmpty()) {
+            player.getInventory().setItem(inventorySlot,
+                    source.split(Math.min(source.getMaxStackSize(), source.getCount())));
+        } else if (ItemStack.isSameItemSameComponents(stored, source)) {
+            int moved = Math.min(stored.getMaxStackSize() - stored.getCount(), source.getCount());
+            stored.grow(moved);
+            source.shrink(moved);
+        }
+        return original - source.getCount();
     }
 
     private static int inventoryCapacity(ServerPlayer player, ItemStack candidate, int reservedEmptySlots) {

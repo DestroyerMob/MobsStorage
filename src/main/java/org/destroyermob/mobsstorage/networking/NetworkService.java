@@ -35,8 +35,10 @@ import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.storage.LabelData;
+import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
+import org.destroyermob.mobsstorage.world.NetworkPortBlockEntity;
 
 public final class NetworkService {
     private static final String SELECTED_NETWORK = "MobsStorageSelectedNetwork";
@@ -171,6 +173,8 @@ public final class NetworkService {
                 data.delete(network.id(), playerId);
                 if (selectedNetwork(wand).filter(network.id()::equals).isPresent()) clearSelection(wand);
             });
+            case REFRESH -> {
+            }
         }
         selectedNetwork(wand).flatMap(data::get)
                 .ifPresent(network -> setSelection(wand, network.id(), network.name()));
@@ -191,6 +195,16 @@ public final class NetworkService {
         if (payload.unlink()) {
             unlink(level, node.get(), network);
             return;
+        }
+        BlockEntity clickedEntity = level.getBlockEntity(payload.pos());
+        if (clickedEntity instanceof NetworkPortBlockEntity port && port.isOutput()) {
+            String filter = payload.outputFilter().strip();
+            if (filter.length() > NetworkPortBlockEntity.MAX_FILTER_LENGTH
+                    || !filter.isEmpty() && FilterRules.validate(List.of(filter)).isPresent()) {
+                return;
+            }
+            port.setOutputFilter(filter);
+            level.invalidateCapabilities(payload.pos());
         }
         ResourceLocation icon = nodeIcon(level, payload.pos());
         updateDetails(level, payload.pos(), payload.name(), payload.priority(), icon);
@@ -410,6 +424,14 @@ public final class NetworkService {
                         () -> message(player, "item.mobsstorage.network_wand.no_access"));
     }
 
+    public static void openNodeConfiguration(ServerPlayer player, BlockPos pos) {
+        ServerLevel level = player.serverLevel();
+        if (!level.isLoaded(pos) || !StorageResolver.networkEligible(level, pos)
+                || player.distanceToSqr(Vec3.atCenterOf(pos)) > MAX_INTERACTION_DISTANCE_SQUARED) return;
+        StorageNetworkSavedData data = StorageNetworkSavedData.get(player.server);
+        configureStorage(player, pos, data, findNode(level, pos));
+    }
+
     private static Optional<StorageNetwork> selectedOwnedNetwork(
             ServerPlayer player,
             ItemStack wand,
@@ -466,12 +488,15 @@ public final class NetworkService {
     private static void openNode(ServerPlayer player, BlockPos clicked, NetworkNodeData node, StorageNetwork network) {
         boolean origin = network.origin().filter(value -> value.equals(
                 GlobalPos.of(player.serverLevel().dimension(), node.anchor()))).isPresent();
+        BlockEntity blockEntity = player.serverLevel().getBlockEntity(clicked);
+        boolean outputPort = blockEntity instanceof NetworkPortBlockEntity port && port.isOutput();
+        String outputFilter = outputPort ? ((NetworkPortBlockEntity) blockEntity).outputFilter() : "";
         PacketDistributor.sendToPlayer(player, new OpenNetworkNodePayload(
                 clicked, network.id(), network.name(), node.name(), node.priority(), origin,
-                network.isOwner(player.getUUID())));
+                network.isOwner(player.getUUID()), outputPort, outputFilter));
     }
 
-    private static NetworkSnapshot snapshot(
+    static NetworkSnapshot snapshot(
             MinecraftServer server, ServerPlayer viewer, StorageNetwork network, UUID selected
     ) {
         List<NetworkSnapshot.Member> members = network.members().stream()
@@ -481,8 +506,10 @@ public final class NetworkService {
             StorageNetwork.NodeInfo info = network.nodeInfo(pos);
             String name = info.name().isBlank()
                     ? "Storage " + pos.pos().getX() + ", " + pos.pos().getY() + ", " + pos.pos().getZ() : info.name();
+            NodeDiagnostics diagnostics = diagnoseNode(server, network, pos);
             return new NetworkSnapshot.Node(pos, name, info.priority(), info.icon(),
-                    network.origin().filter(pos::equals).isPresent());
+                    network.origin().filter(pos::equals).isPresent(), diagnostics.status(),
+                    diagnostics.usedSlots(), diagnostics.totalSlots());
         }).sorted(Comparator.comparingInt(NetworkSnapshot.Node::priority).reversed()
                 .thenComparing(NetworkSnapshot.Node::name, String.CASE_INSENSITIVE_ORDER)).toList();
         return new NetworkSnapshot(network.id(), network.name(), profileName(server, network.owner()),
@@ -490,7 +517,49 @@ public final class NetworkService {
                 network.id().equals(selected), members, nodes);
     }
 
+    private static NodeDiagnostics diagnoseNode(
+            MinecraftServer server, StorageNetwork network, GlobalPos savedPos
+    ) {
+        ServerLevel level = server.getLevel(savedPos.dimension());
+        if (level == null) {
+            return new NodeDiagnostics(NetworkSnapshot.NodeStatus.UNAVAILABLE, 0, 0);
+        }
+        if (!level.isLoaded(savedPos.pos())) {
+            return new NodeDiagnostics(NetworkSnapshot.NodeStatus.UNLOADED, 0, 0);
+        }
+        Optional<NetworkNodeData> liveNode = findNode(level, savedPos.pos());
+        if (liveNode.isEmpty()) {
+            return new NodeDiagnostics(NetworkSnapshot.NodeStatus.MISSING, 0, 0);
+        }
+        if (!liveNode.get().networkId().equals(network.id())) {
+            return new NodeDiagnostics(NetworkSnapshot.NodeStatus.WRONG_NETWORK, 0, 0);
+        }
+        List<BlockEntity> storage = StorageResolver.logicalStorage(level, liveNode.get().anchor());
+        boolean terminal = storage.stream().anyMatch(NetworkInterfaceBlockEntity.class::isInstance);
+        NetworkSnapshot.NodeStatus status = NetworkSnapshot.NodeStatus.ONLINE;
+        GlobalPos endpoint = GlobalPos.of(level.dimension(), liveNode.get().anchor());
+        if (terminal && network.origin().isEmpty()) {
+            status = NetworkSnapshot.NodeStatus.NO_ORIGIN;
+        } else if (terminal && !withinOriginRange(network, endpoint)) {
+            status = NetworkSnapshot.NodeStatus.OUT_OF_RANGE;
+        }
+        int usedSlots = 0;
+        int totalSlots = 0;
+        for (BlockEntity blockEntity : storage) {
+            if (!(blockEntity instanceof Container container)) continue;
+            totalSlots += container.getContainerSize();
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                if (!container.getItem(slot).isEmpty()) usedSlots++;
+            }
+        }
+        return new NodeDiagnostics(status, usedSlots, totalSlots);
+    }
+
+    private record NodeDiagnostics(NetworkSnapshot.NodeStatus status, int usedSlots, int totalSlots) {
+    }
+
     private static String profileName(MinecraftServer server, UUID id) {
+        if (server.getProfileCache() == null) return id.toString().substring(0, 8);
         return server.getProfileCache().get(id).map(GameProfile::getName)
                 .orElse(id.toString().substring(0, 8));
     }

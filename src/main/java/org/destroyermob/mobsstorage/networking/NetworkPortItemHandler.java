@@ -23,7 +23,9 @@ final class NetworkPortItemHandler implements IItemHandler {
     @Override
     public ItemStack getStackInSlot(int slot) {
         checkSlot(slot);
-        return port.isInput() ? ItemStack.EMPTY : outputSlots().get(slot).stack().copy();
+        if (port.isInput()) return ItemStack.EMPTY;
+        ItemStack stack = outputSlots().get(slot).stack();
+        return port.allowsOutput(stack) ? stack.copy() : ItemStack.EMPTY;
     }
 
     @Override
@@ -41,7 +43,7 @@ final class NetworkPortItemHandler implements IItemHandler {
         if (!port.isOutput() || amount <= 0) return ItemStack.EMPTY;
         NetworkInventoryService.StorageSlot target = outputSlots().get(slot);
         ItemStack stored = target.stack();
-        if (stored.isEmpty()) return ItemStack.EMPTY;
+        if (!port.allowsOutput(stored)) return ItemStack.EMPTY;
         int moved = Math.min(amount, Math.min(stored.getCount(), stored.getMaxStackSize()));
         return simulate ? stored.copyWithCount(moved) : target.container().removeItem(target.slot(), moved);
     }

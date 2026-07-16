@@ -55,7 +55,8 @@ public abstract class HopperBlockEntityMixin {
         if (!(level.getBlockEntity(sourcePos) instanceof NetworkPortBlockEntity port) || !port.isOutput()) {
             return;
         }
-        ItemStack extracted = NetworkInventoryService.extractFirst(port, 1, false);
+        ItemStack extracted = NetworkInventoryService.extractFirstMatching(
+                port, 1, false, port::allowsOutput);
         if (extracted.isEmpty()) {
             callback.setReturnValue(false);
             return;

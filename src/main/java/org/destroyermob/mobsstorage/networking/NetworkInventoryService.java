@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -74,10 +75,16 @@ public final class NetworkInventoryService {
     }
 
     public static ItemStack extractFirst(Container endpoint, int amount, boolean simulate) {
+        return extractFirstMatching(endpoint, amount, simulate, stack -> true);
+    }
+
+    public static ItemStack extractFirstMatching(
+            Container endpoint, int amount, boolean simulate, Predicate<ItemStack> filter
+    ) {
         if (amount <= 0) return ItemStack.EMPTY;
         for (StorageSlot slot : automatedSlots(endpoint).orElse(List.of())) {
             ItemStack stored = slot.stack();
-            if (stored.isEmpty()) continue;
+            if (stored.isEmpty() || !filter.test(stored)) continue;
             int moved = Math.min(amount, Math.min(stored.getCount(), stored.getMaxStackSize()));
             return simulate ? stored.copyWithCount(moved) : slot.container().removeItem(slot.slot(), moved);
         }

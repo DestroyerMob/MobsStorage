@@ -27,6 +27,7 @@ public record NetworkActionPayload(Action action, UUID networkId, UUID subjectId
     @Override public Type<NetworkActionPayload> type() { return TYPE; }
 
     public enum Action {
-        CREATE, SELECT, CLEAR_SELECTION, JOIN, LEAVE, TOGGLE_PUBLIC, RENAME, ADD_MEMBER, REMOVE_MEMBER, DELETE
+        CREATE, SELECT, CLEAR_SELECTION, JOIN, LEAVE, TOGGLE_PUBLIC, RENAME, ADD_MEMBER, REMOVE_MEMBER, DELETE,
+        REFRESH
     }
 }

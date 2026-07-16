@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -33,9 +34,15 @@ public final class MobsStorageClient {
         NeoForge.EVENT_BUS.addListener(InventoryControls::onKey);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onMouse);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onRender);
-        NeoForge.EVENT_BUS.addListener(CarryRulesControls::onWorldKey);
-        NeoForge.EVENT_BUS.addListener(CarryRulesControls::onScreenKey);
-        NeoForge.EVENT_BUS.addListener(CarryRulesControls::onScreenInit);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, TerminalInputCapture::onKeyPressed);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, TerminalInputCapture::onCharacterTyped);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onScreenKey);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onCharacterTyped);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onMouse);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onMouseReleased);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onMouseDragged);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, CarryRulesControls::onMouseScrolled);
+        NeoForge.EVENT_BUS.addListener(CarryRulesControls::onRender);
     }
 
     private static void registerMenuScreens(RegisterMenuScreensEvent event) {
@@ -48,8 +55,8 @@ public final class MobsStorageClient {
 
     public static void openNetworkManager(OpenNetworkManagerPayload payload) {
         Minecraft minecraft = Minecraft.getInstance();
-        boolean accessPage = minecraft.screen instanceof NetworkManagerScreen screen && screen.accessPage();
-        minecraft.setScreen(new NetworkManagerScreen(payload, accessPage));
+        int pageIndex = minecraft.screen instanceof NetworkManagerScreen screen ? screen.pageIndex() : 0;
+        minecraft.setScreen(new NetworkManagerScreen(payload, pageIndex));
     }
 
     public static void openNetworkNode(OpenNetworkNodePayload payload) {

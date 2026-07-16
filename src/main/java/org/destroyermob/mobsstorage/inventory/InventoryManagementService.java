@@ -41,21 +41,33 @@ public final class InventoryManagementService {
     }
 
     public static InventoryProfile apply(ServerPlayer player, InventoryActionPayload payload, InventoryProfile profile) {
-        switch (payload.action()) {
-            case TOGGLE_LOCK -> profile = toggleLock(player, profile, payload.slot());
-            case TOGGLE_FAVOURITE -> profile = toggleFavourite(player, profile, payload.slot());
-            case TOGGLE_HOTBAR -> profile = togglePreference(player, profile, payload.slot(), true);
-            case TOGGLE_RESTOCK -> profile = togglePreference(player, profile, payload.slot(), false);
-            case SORT_ITEM -> sort(player, profile, payload.slot(), Comparator.comparing(InventoryManagementService::itemId));
-            case SORT_CATEGORY -> sort(player, profile, payload.slot(), Comparator.comparingInt(InventoryManagementService::category)
+        InventoryActionPayload.Action action = payload.action();
+        if (action == InventoryActionPayload.Action.TOGGLE_LOCK) {
+            profile = toggleLock(player, profile, payload.slot());
+        } else if (action == InventoryActionPayload.Action.TOGGLE_FAVOURITE) {
+            profile = toggleFavourite(player, profile, payload.slot());
+        } else if (action == InventoryActionPayload.Action.TOGGLE_HOTBAR) {
+            profile = togglePreference(player, profile, payload.slot(), true);
+        } else if (action == InventoryActionPayload.Action.TOGGLE_RESTOCK) {
+            profile = togglePreference(player, profile, payload.slot(), false);
+        } else if (action == InventoryActionPayload.Action.SORT_ITEM) {
+            sort(player, profile, payload.slot(), Comparator.comparing(InventoryManagementService::itemId));
+        } else if (action == InventoryActionPayload.Action.SORT_CATEGORY) {
+            sort(player, profile, payload.slot(), Comparator.comparingInt(InventoryManagementService::category)
                     .thenComparing(InventoryManagementService::itemId));
-            case SORT_QUANTITY -> sort(player, profile, payload.slot(), Comparator.comparingInt(ItemStack::getCount).reversed()
+        } else if (action == InventoryActionPayload.Action.SORT_QUANTITY) {
+            sort(player, profile, payload.slot(), Comparator.comparingInt(ItemStack::getCount).reversed()
                     .thenComparing(InventoryManagementService::itemId));
-            case CONSOLIDATE -> consolidate(player.getInventory(), movableSlots(profile));
-            case TRANSFER_MATCHING -> transfer(player, profile, true);
-            case DEPOSIT -> transfer(player, profile, false);
-            case SWAP_VERTICAL_SLOT -> swapVerticalSlot(player, payload.slot());
-            case SWAP_HOTBAR -> swapHotbar(player, payload.slot());
+        } else if (action == InventoryActionPayload.Action.CONSOLIDATE) {
+            consolidate(player.getInventory(), movableSlots(profile));
+        } else if (action == InventoryActionPayload.Action.TRANSFER_MATCHING) {
+            transfer(player, profile, true);
+        } else if (action == InventoryActionPayload.Action.DEPOSIT) {
+            transfer(player, profile, false);
+        } else if (action == InventoryActionPayload.Action.SWAP_VERTICAL_SLOT) {
+            swapVerticalSlot(player, payload.slot());
+        } else if (action == InventoryActionPayload.Action.SWAP_HOTBAR) {
+            swapHotbar(player, payload.slot());
         }
         applyHotbarPreferences(player, profile);
         player.getInventory().setChanged();
@@ -67,7 +79,8 @@ public final class InventoryManagementService {
         if (slotId < 0 || slotId >= menu.slots.size()) return false;
         Slot slot = menu.slots.get(slotId);
         if (!(slot.container instanceof Inventory) || slot.getItem().isEmpty()) return false;
-        InventoryProfile profile = player.getData(ModAttachments.INVENTORY_PROFILE);
+        InventoryProfile profile = player.getExistingData(ModAttachments.INVENTORY_PROFILE)
+                .orElse(InventoryProfile.EMPTY);
         return profile.lockedSlots().contains(slot.getContainerSlot())
                 || profile.favourites().contains(BuiltInRegistries.ITEM.getKey(slot.getItem().getItem()));
     }
@@ -253,7 +266,8 @@ public final class InventoryManagementService {
             ItemStack source = inventory.getItem(index);
             if (source.isEmpty() || profile.favourites().contains(BuiltInRegistries.ITEM.getKey(source.getItem()))) continue;
             if (matchingOnly && !matching.contains(BuiltInRegistries.ITEM.getKey(source.getItem()))) continue;
-            int offeredCount = matchingOnly ? source.getCount() : CarryRuleService.depositableCount(player, source);
+            int offeredCount = matchingOnly ? source.getCount()
+                    : CarryRuleService.depositableCount(player, index, source);
             if (offeredCount <= 0) continue;
             ItemStack offered = source.copyWithCount(offeredCount);
             if (networked) {
