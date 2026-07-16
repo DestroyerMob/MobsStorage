@@ -75,27 +75,27 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         this.access = access;
         this.network = new NetworkTerminalView(terminal, ingredientSlots);
 
-        for (int row = 0; row < 5; row++) {
+        for (int row = 0; row < NetworkTerminalView.VISIBLE_ROWS; row++) {
             for (int column = 0; column < 9; column++) {
                 addSlot(new NetworkSlot(network, column + row * 9, 8 + column * 18,
-                        24 + row * 18, false));
+                        37 + row * 18, false));
             }
         }
 
-        addSlot(new ResultSlot(playerInventory.player, craftSlots, resultSlots, 0, 248, 52));
+        addSlot(new ResultSlot(playerInventory.player, craftSlots, resultSlots, 0, 120, 174));
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 3; column++) {
-                addSlot(new Slot(craftSlots, column + row * 3, 184 + column * 18, 34 + row * 18));
+                addSlot(new Slot(craftSlots, column + row * 3, 29 + column * 18, 160 + row * 18));
             }
         }
 
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 9; column++) {
-                addSlot(new Slot(playerInventory, column + row * 9 + 9, 8 + column * 18, 142 + row * 18));
+                addSlot(new Slot(playerInventory, column + row * 9 + 9, 8 + column * 18, 218 + row * 18));
             }
         }
         for (int column = 0; column < 9; column++) {
-            addSlot(new Slot(playerInventory, column, 8 + column * 18, 200));
+            addSlot(new Slot(playerInventory, column, 8 + column * 18, 276));
         }
         for (int slot = 0; slot < ingredientSlots; slot++) {
             addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000, true));
@@ -198,6 +198,13 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         scrollData.set(4, network.totalNodes());
         scrollData.set(5, network.usedSlots());
         scrollData.set(6, network.totalSlots());
+    }
+
+    public void updateView(String query, NetworkTerminalSort sort, boolean descending) {
+        if (terminal == null) return;
+        network.setView(query, sort, descending);
+        updateViewData();
+        broadcastFullState();
     }
 
     @Override

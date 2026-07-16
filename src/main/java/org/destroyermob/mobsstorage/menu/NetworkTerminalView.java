@@ -12,24 +12,28 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import org.destroyermob.mobsstorage.networking.NetworkInventoryService;
+import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.world.NetworkInterfaceBlockEntity;
 import org.jetbrains.annotations.Nullable;
 
 final class NetworkTerminalView implements Container {
     static final int COLUMNS = 9;
-    static final int VISIBLE_ROWS = 5;
+    static final int VISIBLE_ROWS = 6;
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> ingredientItems;
     private final List<NetworkInventoryService.StorageSlot> ingredientSlots;
     private final Container ingredientIndex = new IngredientIndex();
     @Nullable private final NetworkInterfaceBlockEntity endpoint;
+    private String query = "";
+    private boolean queryValid = true;
+    private NetworkTerminalSort sort = NetworkTerminalSort.ITEM;
+    private boolean descending;
     private int scrollRow;
     private int maxScrollRows;
-    private String query = "";
-    private TerminalSortMode sortMode = TerminalSortMode.NAME;
     private int loadedNodes;
     private int activeNodes;
     private int totalNodes;
@@ -61,11 +65,15 @@ final class NetworkTerminalView implements Container {
             entry.count += stored.getCount();
         }
         List<Entry> entries = new ArrayList<>(grouped.values());
-        if (!query.isBlank()) {
-            String normalized = query.toLowerCase(Locale.ROOT);
-            entries.removeIf(entry -> !matches(entry.sample, normalized));
+        if (!queryValid) {
+            entries.clear();
+        } else if (!query.isBlank()) {
+            Item.TooltipContext tooltipContext = endpoint.getLevel() == null
+                    ? Item.TooltipContext.EMPTY : Item.TooltipContext.of(endpoint.getLevel());
+            entries.removeIf(entry -> !FilterRules.matches(entry.sample, List.of(query), tooltipContext));
         }
-        entries.sort(comparator());
+        Comparator<Entry> comparator = comparator();
+        entries.sort(descending ? comparator.reversed() : comparator);
         List<ItemStack> flattened = new ArrayList<>();
         for (Entry entry : entries) {
             flattened.add(entry.sample.copyWithCount((int) Math.min(Integer.MAX_VALUE, entry.count)));
@@ -80,17 +88,28 @@ final class NetworkTerminalView implements Container {
         }
     }
 
+    void setView(String query, NetworkTerminalSort sort, boolean descending) {
+        this.query = query == null ? "" : query.trim();
+        this.queryValid = this.query.isBlank() || FilterRules.validate(List.of(this.query)).isEmpty();
+        this.sort = sort == null ? NetworkTerminalSort.ITEM : sort;
+        this.descending = descending;
+        this.scrollRow = 0;
+        refresh();
+    }
+
     void setScrollRow(int row) {
         scrollRow = Math.max(0, Math.min(row, maxScrollRows));
         refresh();
     }
 
     void setQuery(String value, TerminalSortMode mode) {
-        query = value == null ? "" : value.strip();
-        if (query.length() > 64) query = query.substring(0, 64);
-        sortMode = mode == null ? TerminalSortMode.NAME : mode;
-        scrollRow = 0;
-        refresh();
+        TerminalSortMode resolved = mode == null ? TerminalSortMode.NAME : mode;
+        NetworkTerminalSort nextSort = switch (resolved) {
+            case NAME -> NetworkTerminalSort.ITEM;
+            case QUANTITY -> NetworkTerminalSort.QUANTITY;
+            case MOD -> NetworkTerminalSort.MOD;
+        };
+        setView(value, nextSort, resolved == TerminalSortMode.QUANTITY);
     }
 
     int loadedNodes() { return loadedNodes; }
@@ -98,26 +117,6 @@ final class NetworkTerminalView implements Container {
     int totalNodes() { return totalNodes; }
     int usedSlots() { return usedSlots; }
     int totalSlots() { return totalSlots; }
-
-    private boolean matches(ItemStack stack, String normalized) {
-        String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().toLowerCase(Locale.ROOT);
-        String name = stack.getHoverName().getString().toLowerCase(Locale.ROOT);
-        return id.contains(normalized) || name.contains(normalized)
-                || id.substring(0, id.indexOf(':')).contains(normalized);
-    }
-
-    private Comparator<Entry> comparator() {
-        Comparator<Entry> name = Comparator.comparing((Entry entry) ->
-                        entry.sample.getHoverName().getString(), String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(entry -> BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).toString());
-        return switch (sortMode) {
-            case NAME -> name;
-            case QUANTITY -> Comparator.comparingLong((Entry entry) -> entry.count).reversed().thenComparing(name);
-            case MOD -> Comparator.comparing((Entry entry) ->
-                            BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).getNamespace())
-                    .thenComparing(name);
-        };
-    }
 
     int scrollRow() {
         return scrollRow;
@@ -129,6 +128,24 @@ final class NetworkTerminalView implements Container {
 
     Container ingredientIndex() {
         return ingredientIndex;
+    }
+
+    private Comparator<Entry> comparator() {
+        Comparator<Entry> itemOrder = Comparator
+                .comparing((Entry entry) -> entry.sample.getHoverName().getString().toLowerCase(Locale.ROOT))
+                .thenComparing(this::itemId);
+        return switch (sort) {
+            case ITEM -> itemOrder;
+            case QUANTITY -> Comparator.comparingLong((Entry entry) -> entry.count)
+                    .thenComparing(itemOrder);
+            case MOD -> Comparator.comparing((Entry entry) ->
+                            BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).getNamespace())
+                    .thenComparing(itemOrder);
+        };
+    }
+
+    private String itemId(Entry entry) {
+        return BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).toString();
     }
 
     @Override public int getContainerSize() { return VISIBLE_SIZE; }

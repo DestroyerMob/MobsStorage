@@ -59,6 +59,8 @@ public final class ModNetworking {
                 ModNetworking::handleSaveCarryRules);
         registrar.playToServer(TerminalQueryPayload.TYPE, TerminalQueryPayload.STREAM_CODEC, ModNetworking::handleTerminalQuery);
         registrar.playToServer(TerminalExtractPayload.TYPE, TerminalExtractPayload.STREAM_CODEC, ModNetworking::handleTerminalExtract);
+        registrar.playToServer(UpdateTerminalViewPayload.TYPE, UpdateTerminalViewPayload.STREAM_CODEC,
+                ModNetworking::handleUpdateTerminalView);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -129,6 +131,16 @@ public final class ModNetworking {
                     && player.containerMenu.containerId == payload.containerId()
                     && player.containerMenu instanceof NetworkTerminalMenu menu) {
                 menu.extractExact(player, payload.slot(), payload.amount());
+            }
+        });
+    }
+
+    private static void handleUpdateTerminalView(UpdateTerminalViewPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player
+                    && player.containerMenu.containerId == payload.containerId()
+                    && player.containerMenu instanceof NetworkTerminalMenu menu) {
+                menu.updateView(payload.query(), payload.sort(), payload.descending());
             }
         });
     }

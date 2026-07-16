@@ -50,6 +50,7 @@ import org.destroyermob.mobsstorage.inventory.CarryRule;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.menu.TerminalSortMode;
+import org.destroyermob.mobsstorage.menu.NetworkTerminalSort;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
@@ -67,6 +68,7 @@ public final class NetworkGameTests {
     private static final BlockPos SECOND = new BlockPos(3, 1, 1);
     private static final BlockPos THIRD = new BlockPos(5, 1, 1);
     private static final BlockPos HOPPER = FIRST.south();
+    private static final BlockPos FOURTH = THIRD.south();
 
     private NetworkGameTests() {
     }
@@ -729,10 +731,12 @@ public final class NetworkGameTests {
         helper.setBlock(SECOND, Blocks.CHEST);
         helper.setBlock(THIRD, Blocks.CHEST);
         helper.setBlock(HOPPER, ModBlocks.NETWORK_INTERFACE.get());
+        helper.setBlock(FOURTH, Blocks.CHEST);
         NetworkInterfaceBlockEntity terminal = helper.getBlockEntity(FIRST);
         NetworkInterfaceBlockEntity secondTerminal = helper.getBlockEntity(HOPPER);
         ChestBlockEntity ingots = helper.getBlockEntity(SECOND);
         ChestBlockEntity rawMaterials = helper.getBlockEntity(THIRD);
+        ChestBlockEntity overflow = helper.getBlockEntity(FOURTH);
 
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         BlockPos playerPos = helper.absolutePos(FIRST).above();
@@ -743,14 +747,17 @@ public final class NetworkGameTests {
         GlobalPos secondTerminalPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(HOPPER));
         GlobalPos ingotsPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(SECOND));
         GlobalPos rawPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(THIRD));
+        GlobalPos overflowPos = GlobalPos.of(helper.getLevel().dimension(), helper.absolutePos(FOURTH));
         network.addNode(terminalPos);
         network.addNode(secondTerminalPos);
         network.addNode(ingotsPos);
         network.addNode(rawPos);
+        network.addNode(overflowPos);
         network.updateNode(terminalPos, "Network Interface", 0, MobsStorage.id("network_interface"));
         network.updateNode(secondTerminalPos, "Second Interface", 0, MobsStorage.id("network_interface"));
         network.updateNode(ingotsPos, "Ingots", 0, LabelData.AIR);
         network.updateNode(rawPos, "Raw Materials", 0, LabelData.AIR);
+        network.updateNode(overflowPos, "Overflow", 0, LabelData.AIR);
         network.setOrigin(ingotsPos);
         data.changed();
 
@@ -762,6 +769,8 @@ public final class NetworkGameTests {
                 network.id(), "Ingots", 0, helper.absolutePos(SECOND)));
         rawMaterials.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
                 network.id(), "Raw Materials", 0, helper.absolutePos(THIRD)));
+        overflow.setData(ModAttachments.NETWORK_NODE, new NetworkNodeData(
+                network.id(), "Overflow", 0, helper.absolutePos(FOURTH)));
         StorageResolver.setLabel(helper.getLevel(), List.of(ingots),
                 label(helper.absolutePos(SECOND), "#c:ingots"));
         StorageResolver.setLabel(helper.getLevel(), List.of(rawMaterials),
@@ -809,6 +818,14 @@ public final class NetworkGameTests {
         menu.clicked(NetworkTerminalMenu.NETWORK_START, 0, ClickType.PICKUP, player);
         helper.assertTrue(menu.getCarried().isEmpty() && count(Items.GOLD_INGOT, ingots) == 2,
                 "Crafting terminal did not deposit carried items through network routing");
+
+        menu.updateView("@minecraft raw -gold", NetworkTerminalSort.ITEM, false);
+        helper.assertTrue(menu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().is(Items.RAW_IRON)
+                        && menu.getSlot(NetworkTerminalMenu.NETWORK_START + 1).getItem().isEmpty(),
+                "Terminal expression search did not filter the aggregate network view");
+        menu.updateView("", NetworkTerminalSort.QUANTITY, true);
+        helper.assertTrue(menu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().is(Items.RAW_IRON),
+                "Descending quantity sort did not place the largest aggregate stack first");
 
         visibleRawSlot = -1;
         for (int slot = NetworkTerminalMenu.NETWORK_START; slot < NetworkTerminalMenu.NETWORK_END; slot++) {
@@ -863,22 +880,28 @@ public final class NetworkGameTests {
 
         ingots.clearContent();
         rawMaterials.clearContent();
+        overflow.clearContent();
         StorageResolver.clearLabel(helper.getLevel(), List.of(ingots));
         StorageResolver.clearLabel(helper.getLevel(), List.of(rawMaterials));
         List<ItemStack> distinctItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
-                .limit(46)
+                .limit(55)
                 .map(ItemStack::new)
                 .toList();
         for (int index = 0; index < distinctItems.size(); index++) {
             if (index < ingots.getContainerSize()) ingots.setItem(index, distinctItems.get(index));
-            else rawMaterials.setItem(index - ingots.getContainerSize(), distinctItems.get(index));
+            else if (index < ingots.getContainerSize() + rawMaterials.getContainerSize()) {
+                rawMaterials.setItem(index - ingots.getContainerSize(), distinctItems.get(index));
+            } else {
+                overflow.setItem(index - ingots.getContainerSize() - rawMaterials.getContainerSize(),
+                        distinctItems.get(index));
+            }
         }
         NetworkTerminalMenu scrollMenu = new NetworkTerminalMenu(8, player.getInventory(), terminal);
         ItemStack firstVisible = scrollMenu.getSlot(NetworkTerminalMenu.NETWORK_START).getItem().copy();
         ItemStack physicalSource = scrollMenu.getSlot(NetworkTerminalMenu.INGREDIENT_INDEX_START).getItem().copy();
         helper.assertTrue(scrollMenu.maxScrollRows() == 1,
-                "Forty-six item types did not create one additional scroll row");
+                "Fifty-five item types did not create one additional scroll row");
         helper.assertTrue(!physicalSource.isEmpty(),
                 "Physical network slots were not exposed to crafting recipe transfer");
         scrollMenu.setCarried(ItemStack.EMPTY);
@@ -887,7 +910,7 @@ public final class NetworkGameTests {
                 "Crafting transfer index could not pull a physical network item");
         scrollMenu.clicked(NetworkTerminalMenu.CRAFT_START, 0, ClickType.PICKUP, player);
         scrollMenu.removed(player);
-        helper.assertTrue(countAll(ingots, rawMaterials) == 46,
+        helper.assertTrue(countAll(ingots, rawMaterials, overflow) == 55,
                 "Physical crafting transfer duplicated or lost a network item");
 
         NetworkTerminalMenu pageMenu = new NetworkTerminalMenu(9, player.getInventory(), terminal);
