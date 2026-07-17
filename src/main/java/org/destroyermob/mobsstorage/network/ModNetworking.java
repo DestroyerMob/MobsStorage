@@ -10,6 +10,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleService;
+import org.destroyermob.mobsstorage.inventory.BundleSelectionService;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
@@ -18,7 +19,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "7";
+    private static final String NETWORK_VERSION = "10";
 
     private ModNetworking() {
     }
@@ -28,20 +29,9 @@ public final class ModNetworking {
     }
 
     public static void openEditor(ServerPlayer player, net.minecraft.core.BlockPos pos, LabelData data, boolean installing) {
-        java.util.List<net.minecraft.world.level.block.entity.BlockEntity> storage =
-                StorageResolver.logicalStorage(player.serverLevel(), pos);
-        NetworkNodeData node = storage.stream()
+        NetworkNodeData node = StorageResolver.logicalStorage(player.serverLevel(), pos).stream()
                 .map(NetworkService::nodeData).findFirst().orElse(NetworkNodeData.EMPTY);
-        java.util.List<net.minecraft.world.item.ItemStack> contents = storage.stream()
-                .filter(net.minecraft.world.Container.class::isInstance)
-                .map(net.minecraft.world.Container.class::cast)
-                .flatMap(container -> java.util.stream.IntStream.range(0, container.getContainerSize())
-                        .mapToObj(container::getItem))
-                .filter(stack -> !stack.isEmpty())
-                .map(net.minecraft.world.item.ItemStack::copy)
-                .toList();
-        PacketDistributor.sendToPlayer(player,
-                new OpenLabelEditorPayload(pos, data, node, installing, contents));
+        PacketDistributor.sendToPlayer(player, new OpenLabelEditorPayload(pos, data, node, installing));
     }
 
     private static void registerPayloads(RegisterPayloadHandlersEvent event) {
@@ -57,10 +47,10 @@ public final class ModNetworking {
         registrar.playToServer(InventoryActionPayload.TYPE, InventoryActionPayload.STREAM_CODEC, ModNetworking::handleInventoryAction);
         registrar.playToServer(SaveCarryRulesPayload.TYPE, SaveCarryRulesPayload.STREAM_CODEC,
                 ModNetworking::handleSaveCarryRules);
-        registrar.playToServer(TerminalQueryPayload.TYPE, TerminalQueryPayload.STREAM_CODEC, ModNetworking::handleTerminalQuery);
-        registrar.playToServer(TerminalExtractPayload.TYPE, TerminalExtractPayload.STREAM_CODEC, ModNetworking::handleTerminalExtract);
         registrar.playToServer(UpdateTerminalViewPayload.TYPE, UpdateTerminalViewPayload.STREAM_CODEC,
                 ModNetworking::handleUpdateTerminalView);
+        registrar.playToServer(SelectBundleItemPayload.TYPE, SelectBundleItemPayload.STREAM_CODEC,
+                ModNetworking::handleSelectBundleItem);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -115,32 +105,20 @@ public final class ModNetworking {
         });
     }
 
-    private static void handleTerminalQuery(TerminalQueryPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            if (context.player() instanceof ServerPlayer player
-                    && player.containerMenu.containerId == payload.containerId()
-                    && player.containerMenu instanceof NetworkTerminalMenu menu) {
-                menu.setQuery(payload.query(), payload.sortMode());
-            }
-        });
-    }
-
-    private static void handleTerminalExtract(TerminalExtractPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            if (context.player() instanceof ServerPlayer player
-                    && player.containerMenu.containerId == payload.containerId()
-                    && player.containerMenu instanceof NetworkTerminalMenu menu) {
-                menu.extractExact(player, payload.slot(), payload.amount());
-            }
-        });
-    }
-
     private static void handleUpdateTerminalView(UpdateTerminalViewPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player
                     && player.containerMenu.containerId == payload.containerId()
                     && player.containerMenu instanceof NetworkTerminalMenu menu) {
                 menu.updateView(payload.query(), payload.sort(), payload.descending());
+            }
+        });
+    }
+
+    private static void handleSelectBundleItem(SelectBundleItemPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) {
+                BundleSelectionService.select(player, payload);
             }
         });
     }

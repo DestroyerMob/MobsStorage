@@ -17,7 +17,7 @@ public final class StorageAutomationCapabilities {
         event.registerBlock(Capabilities.ItemHandler.BLOCK,
                 (level, pos, state, blockEntity, side) ->
                         level instanceof ServerLevel && blockEntity instanceof NetworkPortBlockEntity port
-                                ? new NetworkPortItemHandler(port) : null,
+                                ? port.automationHandler() : null,
                 ModBlocks.NETWORK_INPUT.get(), ModBlocks.NETWORK_OUTPUT.get());
 
         Block[] blocks = BuiltInRegistries.BLOCK.stream().toArray(Block[]::new);

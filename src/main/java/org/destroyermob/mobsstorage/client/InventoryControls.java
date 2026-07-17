@@ -40,6 +40,8 @@ public final class InventoryControls {
 
     public static void onKey(ScreenEvent.KeyPressed.Pre event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
+        if (screen instanceof NetworkTerminalScreen terminal && terminal.isSearchFocused()) return;
+        if (CarryRulesControls.blocksContainerShortcuts(screen)) return;
         for (ActionBinding binding : BINDINGS) {
             if (!binding.key().matches(event.getKeyCode(), event.getScanCode())) continue;
             if (trigger(screen, binding)) {

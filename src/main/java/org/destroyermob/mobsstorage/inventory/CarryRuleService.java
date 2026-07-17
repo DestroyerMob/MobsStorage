@@ -45,12 +45,21 @@ public final class CarryRuleService {
     }
 
     public static int depositableCount(ServerPlayer player, ItemStack stack) {
-        return depositableCount(player, rules(player), stack);
+        return depositableCount(player, rules(player), CarryRule.LEGACY_GLOBAL_SLOT, stack);
+    }
+
+    public static int depositableCount(ServerPlayer player, int inventorySlot, ItemStack stack) {
+        return depositableCount(player, rules(player), inventorySlot, stack);
     }
 
     public static int depositableCount(ServerPlayer player, CarryRuleSet ruleSet, ItemStack stack) {
+        return depositableCount(player, ruleSet, CarryRule.LEGACY_GLOBAL_SLOT, stack);
+    }
+
+    public static int depositableCount(ServerPlayer player, CarryRuleSet ruleSet,
+                                       int inventorySlot, ItemStack stack) {
         Item.TooltipContext tooltipContext = Item.TooltipContext.of(player.serverLevel());
-        Optional<Integer> ruleIndex = firstMatchingRule(ruleSet, stack, tooltipContext);
+        Optional<Integer> ruleIndex = firstMatchingRule(ruleSet, inventorySlot, stack, tooltipContext);
         if (ruleIndex.isEmpty()) return stack.getCount();
         CarryRule rule = ruleSet.rules().get(ruleIndex.get());
         int carried = countForRule(player.getInventory(), ruleSet, ruleIndex.get(), tooltipContext);
@@ -64,11 +73,21 @@ public final class CarryRuleService {
 
     public static boolean belongsToRule(CarryRuleSet ruleSet, int ruleIndex, ItemStack stack,
                                         Item.TooltipContext tooltipContext) {
-        return firstMatchingRule(ruleSet, stack, tooltipContext).filter(index -> index == ruleIndex).isPresent();
+        if (ruleIndex < 0 || ruleIndex >= ruleSet.rules().size()) return false;
+        CarryRule rule = ruleSet.rules().get(ruleIndex);
+        if (rule.slotted()) return rule.matches(stack, tooltipContext);
+        return firstMatchingRule(ruleSet, CarryRule.LEGACY_GLOBAL_SLOT, stack, tooltipContext)
+                .filter(index -> index == ruleIndex).isPresent();
     }
 
     static int countForRule(Inventory inventory, CarryRuleSet ruleSet, int ruleIndex,
                             Item.TooltipContext tooltipContext) {
+        if (ruleIndex < 0 || ruleIndex >= ruleSet.rules().size()) return 0;
+        CarryRule rule = ruleSet.rules().get(ruleIndex);
+        if (rule.slotted()) {
+            ItemStack stack = inventory.getItem(rule.inventorySlot());
+            return rule.matches(stack, tooltipContext) ? stack.getCount() : 0;
+        }
         int count = 0;
         for (int slot = 0; slot < 36; slot++) {
             ItemStack stack = inventory.getItem(slot);
@@ -77,11 +96,20 @@ public final class CarryRuleService {
         return count;
     }
 
-    private static Optional<Integer> firstMatchingRule(CarryRuleSet ruleSet, ItemStack stack,
+    private static Optional<Integer> firstMatchingRule(CarryRuleSet ruleSet, int inventorySlot, ItemStack stack,
                                                        Item.TooltipContext tooltipContext) {
         if (stack.isEmpty() || !ruleSet.valid()) return Optional.empty();
+        if (inventorySlot >= 0) {
+            for (int index = 0; index < ruleSet.rules().size(); index++) {
+                CarryRule rule = ruleSet.rules().get(index);
+                if (rule.inventorySlot() == inventorySlot && rule.matches(stack, tooltipContext)) {
+                    return Optional.of(index);
+                }
+            }
+        }
         for (int index = 0; index < ruleSet.rules().size(); index++) {
-            if (ruleSet.rules().get(index).matches(stack, tooltipContext)) return Optional.of(index);
+            CarryRule rule = ruleSet.rules().get(index);
+            if (!rule.slotted() && rule.matches(stack, tooltipContext)) return Optional.of(index);
         }
         return Optional.empty();
     }

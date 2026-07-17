@@ -6,12 +6,14 @@ import net.neoforged.neoforge.items.IItemHandler;
 import org.destroyermob.mobsstorage.world.NetworkPortBlockEntity;
 
 /** One-way machine access for a linked network port. */
-final class NetworkPortItemHandler implements IItemHandler {
+public final class NetworkPortItemHandler implements IItemHandler {
     private static final int INPUT_SLOTS = 1;
     private static final int SLOT_LIMIT = 64;
     private final NetworkPortBlockEntity port;
+    private List<NetworkInventoryService.StorageSlot> cachedOutputSlots = List.of();
+    private long cachedOutputTick = Long.MIN_VALUE;
 
-    NetworkPortItemHandler(NetworkPortBlockEntity port) {
+    public NetworkPortItemHandler(NetworkPortBlockEntity port) {
         this.port = port;
     }
 
@@ -23,7 +25,9 @@ final class NetworkPortItemHandler implements IItemHandler {
     @Override
     public ItemStack getStackInSlot(int slot) {
         checkSlot(slot);
-        return port.isInput() ? ItemStack.EMPTY : outputSlots().get(slot).stack().copy();
+        if (port.isInput()) return ItemStack.EMPTY;
+        ItemStack stack = outputSlots().get(slot).stack();
+        return port.allowsOutput(stack) ? stack.copy() : ItemStack.EMPTY;
     }
 
     @Override
@@ -41,15 +45,15 @@ final class NetworkPortItemHandler implements IItemHandler {
         if (!port.isOutput() || amount <= 0) return ItemStack.EMPTY;
         NetworkInventoryService.StorageSlot target = outputSlots().get(slot);
         ItemStack stored = target.stack();
-        if (stored.isEmpty()) return ItemStack.EMPTY;
+        if (!port.allowsOutput(stored)) return ItemStack.EMPTY;
         int moved = Math.min(amount, Math.min(stored.getCount(), stored.getMaxStackSize()));
-        return simulate ? stored.copyWithCount(moved) : target.container().removeItem(target.slot(), moved);
+        return target.remove(moved, simulate);
     }
 
     @Override
     public int getSlotLimit(int slot) {
         checkSlot(slot);
-        return port.isInput() ? SLOT_LIMIT : outputSlots().get(slot).container().getMaxStackSize();
+        return port.isInput() ? SLOT_LIMIT : outputSlots().get(slot).slotLimit();
     }
 
     @Override
@@ -59,7 +63,12 @@ final class NetworkPortItemHandler implements IItemHandler {
     }
 
     private List<NetworkInventoryService.StorageSlot> outputSlots() {
-        return NetworkInventoryService.automatedSlots(port).orElse(List.of());
+        long gameTime = port.getLevel() == null ? Long.MIN_VALUE : port.getLevel().getGameTime();
+        if (cachedOutputTick != gameTime) {
+            cachedOutputSlots = NetworkInventoryService.automatedSlots(port).orElse(List.of());
+            cachedOutputTick = gameTime;
+        }
+        return cachedOutputSlots;
     }
 
     private void checkSlot(int slot) {

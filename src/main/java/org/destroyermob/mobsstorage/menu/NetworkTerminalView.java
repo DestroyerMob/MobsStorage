@@ -2,11 +2,8 @@ package org.destroyermob.mobsstorage.menu;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.Container;
@@ -23,6 +20,7 @@ final class NetworkTerminalView implements Container {
     static final int COLUMNS = 9;
     static final int VISIBLE_ROWS = 6;
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
+    private static final long INVENTORY_REFRESH_INTERVAL_TICKS = 5L;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> ingredientItems;
     private final List<NetworkInventoryService.StorageSlot> ingredientSlots;
@@ -34,11 +32,8 @@ final class NetworkTerminalView implements Container {
     private boolean descending;
     private int scrollRow;
     private int maxScrollRows;
-    private int loadedNodes;
-    private int activeNodes;
-    private int totalNodes;
-    private int usedSlots;
-    private int totalSlots;
+    private List<Entry> contentEntries = List.of();
+    private long lastInventoryRefreshTick = Long.MIN_VALUE;
 
     NetworkTerminalView(@Nullable NetworkInterfaceBlockEntity endpoint, int ingredientIndexSize) {
         this.endpoint = endpoint;
@@ -50,21 +45,27 @@ final class NetworkTerminalView implements Container {
 
     void refresh() {
         if (endpoint == null) return;
-        NetworkInventoryService.NetworkView view = NetworkInventoryService.networkView(endpoint);
-        loadedNodes = view.loadedNodes();
-        activeNodes = view.activeNodes();
-        totalNodes = view.totalNodes();
-        usedSlots = view.usedSlots();
-        totalSlots = view.totalSlots();
-        Map<StackKey, Entry> grouped = new LinkedHashMap<>();
-        for (NetworkInventoryService.StorageSlot slot : view.slots()) {
-            ItemStack stored = slot.stack();
-            if (stored.isEmpty()) continue;
-            StackKey key = new StackKey(stored.getItem(), stored.getComponentsPatch());
-            Entry entry = grouped.computeIfAbsent(key, unused -> new Entry(stored.copyWithCount(1), 0));
-            entry.count += stored.getCount();
+        List<Entry> entries = new ArrayList<>();
+        for (ItemStack stored : NetworkInventoryService.networkContentSummary(endpoint)) {
+            entries.add(new Entry(stored.copyWithCount(1), stored.getCount()));
         }
-        List<Entry> entries = new ArrayList<>(grouped.values());
+        contentEntries = List.copyOf(entries);
+        lastInventoryRefreshTick = endpoint.getLevel() == null
+                ? Long.MIN_VALUE : endpoint.getLevel().getGameTime();
+        rebuildView();
+    }
+
+    void refreshIfDue() {
+        if (endpoint == null || endpoint.getLevel() == null) return;
+        long gameTime = endpoint.getLevel().getGameTime();
+        if (lastInventoryRefreshTick == Long.MIN_VALUE
+                || gameTime - lastInventoryRefreshTick >= INVENTORY_REFRESH_INTERVAL_TICKS) {
+            refresh();
+        }
+    }
+
+    private void rebuildView() {
+        List<Entry> entries = new ArrayList<>(contentEntries);
         if (!queryValid) {
             entries.clear();
         } else if (!query.isBlank()) {
@@ -76,7 +77,7 @@ final class NetworkTerminalView implements Container {
         entries.sort(descending ? comparator.reversed() : comparator);
         List<ItemStack> flattened = new ArrayList<>();
         for (Entry entry : entries) {
-            flattened.add(entry.sample.copyWithCount((int) Math.min(Integer.MAX_VALUE, entry.count)));
+            flattened.add(entry.sample.copyWithCount(entry.count));
         }
         int totalRows = (flattened.size() + COLUMNS - 1) / COLUMNS;
         maxScrollRows = Math.max(0, totalRows - VISIBLE_ROWS);
@@ -94,29 +95,13 @@ final class NetworkTerminalView implements Container {
         this.sort = sort == null ? NetworkTerminalSort.ITEM : sort;
         this.descending = descending;
         this.scrollRow = 0;
-        refresh();
+        rebuildView();
     }
 
     void setScrollRow(int row) {
         scrollRow = Math.max(0, Math.min(row, maxScrollRows));
-        refresh();
+        rebuildView();
     }
-
-    void setQuery(String value, TerminalSortMode mode) {
-        TerminalSortMode resolved = mode == null ? TerminalSortMode.NAME : mode;
-        NetworkTerminalSort nextSort = switch (resolved) {
-            case NAME -> NetworkTerminalSort.ITEM;
-            case QUANTITY -> NetworkTerminalSort.QUANTITY;
-            case MOD -> NetworkTerminalSort.MOD;
-        };
-        setView(value, nextSort, resolved == TerminalSortMode.QUANTITY);
-    }
-
-    int loadedNodes() { return loadedNodes; }
-    int activeNodes() { return activeNodes; }
-    int totalNodes() { return totalNodes; }
-    int usedSlots() { return usedSlots; }
-    int totalSlots() { return totalSlots; }
 
     int scrollRow() {
         return scrollRow;
@@ -136,7 +121,7 @@ final class NetworkTerminalView implements Container {
                 .thenComparing(this::itemId);
         return switch (sort) {
             case ITEM -> itemOrder;
-            case QUANTITY -> Comparator.comparingLong((Entry entry) -> entry.count)
+            case QUANTITY -> Comparator.comparingInt((Entry entry) -> entry.count)
                     .thenComparing(itemOrder);
             case MOD -> Comparator.comparing((Entry entry) ->
                             BuiltInRegistries.ITEM.getKey(entry.sample.getItem()).getNamespace())
@@ -200,15 +185,13 @@ final class NetworkTerminalView implements Container {
 
     private static final class Entry {
         private final ItemStack sample;
-        private long count;
+        private int count;
 
-        private Entry(ItemStack sample, long count) {
+        private Entry(ItemStack sample, int count) {
             this.sample = sample;
             this.count = count;
         }
     }
-
-    private record StackKey(net.minecraft.world.item.Item item, DataComponentPatch components) {}
 
     private final class IngredientIndex implements Container {
         @Override public int getContainerSize() { return ingredientItems.size(); }

@@ -17,12 +17,14 @@ import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlockEntities;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
+import org.destroyermob.mobsstorage.registry.ModDataComponents;
 import org.destroyermob.mobsstorage.registry.ModItems;
 import org.destroyermob.mobsstorage.registry.ModMenus;
 import org.destroyermob.mobsstorage.storage.StorageLabelEvents;
 import org.destroyermob.mobsstorage.networking.NetworkRefillService;
 import org.destroyermob.mobsstorage.networking.StorageAutomationCapabilities;
 import org.destroyermob.mobsstorage.storage.StorageMenuFilterSync;
+import org.destroyermob.mobsstorage.inventory.BundleSelectionService;
 
 @Mod(MobsStorage.MOD_ID)
 public final class MobsStorage {
@@ -33,6 +35,7 @@ public final class MobsStorage {
         ModItems.register(modBus);
         ModBlockEntities.register(modBus);
         ModMenus.register(modBus);
+        ModDataComponents.register(modBus);
         ModAttachments.register(modBus);
         ModNetworking.register(modBus);
         modBus.addListener(EventPriority.HIGH, StorageAutomationCapabilities::register);
@@ -48,6 +51,7 @@ public final class MobsStorage {
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemUsed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(InventoryManagementService::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, BundleSelectionService::onItemStackedOnOther);
         NeoForge.EVENT_BUS.addListener(CarryRuleService::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, CarryRuleService::onItemPickup);
 

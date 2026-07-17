@@ -2,12 +2,16 @@ package org.destroyermob.mobsstorage.inventory;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 
 public record CarryRuleSet(List<CarryRule> rules, int reservedEmptySlots) {
-    public static final int MAX_RULES = 16;
+    public static final int MAX_RULES = 36;
     public static final int MAX_RESERVED_SLOTS = 9;
     public static final CarryRuleSet EMPTY = new CarryRuleSet(List.of(), 0);
     public static final Codec<CarryRuleSet> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -27,7 +31,29 @@ public record CarryRuleSet(List<CarryRule> rules, int reservedEmptySlots) {
     }
 
     public boolean valid() {
-        return rules.size() <= MAX_RULES && rules.stream().allMatch(CarryRule::valid);
+        if (rules.size() > MAX_RULES || rules.stream().anyMatch(rule -> !rule.valid())) return false;
+        Set<Integer> claimedSlots = new HashSet<>();
+        for (CarryRule rule : rules) {
+            if (rule.slotted() && !claimedSlots.add(rule.inventorySlot())) return false;
+        }
+        return true;
+    }
+
+    public Optional<CarryRule> ruleForSlot(int inventorySlot) {
+        return rules.stream().filter(rule -> rule.inventorySlot() == inventorySlot).findFirst();
+    }
+
+    public CarryRuleSet withRule(CarryRule replacement) {
+        if (!replacement.slotted()) return this;
+        List<CarryRule> updated = new ArrayList<>(rules);
+        updated.removeIf(rule -> rule.inventorySlot() == replacement.inventorySlot());
+        updated.add(replacement);
+        return new CarryRuleSet(updated, reservedEmptySlots);
+    }
+
+    public CarryRuleSet withoutRule(int inventorySlot) {
+        return new CarryRuleSet(rules.stream()
+                .filter(rule -> rule.inventorySlot() != inventorySlot).toList(), reservedEmptySlots);
     }
 
     private void write(RegistryFriendlyByteBuf buffer) {

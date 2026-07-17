@@ -48,7 +48,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     private final ResultContainer resultSlots = new ResultContainer();
     private final ContainerLevelAccess access;
     private final Player player;
-    private final ContainerData scrollData = new SimpleContainerData(7);
+    private final ContainerData scrollData = new SimpleContainerData(2);
     @Nullable private final NetworkInterfaceBlockEntity terminal;
 
     public NetworkTerminalMenu(int containerId, Inventory playerInventory, RegistryFriendlyByteBuf data) {
@@ -78,30 +78,31 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         for (int row = 0; row < NetworkTerminalView.VISIBLE_ROWS; row++) {
             for (int column = 0; column < 9; column++) {
                 addSlot(new NetworkSlot(network, column + row * 9, 8 + column * 18,
-                        37 + row * 18, false));
+                        38 + row * 18, false));
             }
         }
 
-        addSlot(new ResultSlot(playerInventory.player, craftSlots, resultSlots, 0, 120, 174));
+        addSlot(new ResultSlot(playerInventory.player, craftSlots, resultSlots, 0, 124, 179));
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 3; column++) {
-                addSlot(new Slot(craftSlots, column + row * 3, 29 + column * 18, 160 + row * 18));
+                addSlot(new Slot(craftSlots, column + row * 3, 30 + column * 18, 161 + row * 18));
             }
         }
 
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 9; column++) {
-                addSlot(new Slot(playerInventory, column + row * 9 + 9, 8 + column * 18, 218 + row * 18));
+                addSlot(new Slot(playerInventory, column + row * 9 + 9, 8 + column * 18, 228 + row * 18));
             }
         }
         for (int column = 0; column < 9; column++) {
-            addSlot(new Slot(playerInventory, column, 8 + column * 18, 276));
+            addSlot(new Slot(playerInventory, column, 8 + column * 18, 286));
         }
         for (int slot = 0; slot < ingredientSlots; slot++) {
             addSlot(new NetworkSlot(network.ingredientIndex(), slot, -10000, -10000, true));
         }
 
-        updateViewData();
+        scrollData.set(0, network.scrollRow());
+        scrollData.set(1, network.maxScrollRows());
         addDataSlots(scrollData);
         updateCraftingResult(null);
     }
@@ -134,8 +135,9 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     @Override
     public void broadcastChanges() {
         if (terminal != null) {
-            network.refresh();
-            updateViewData();
+            network.refreshIfDue();
+            scrollData.set(0, network.scrollRow());
+            scrollData.set(1, network.maxScrollRows());
         }
         super.broadcastChanges();
     }
@@ -162,48 +164,11 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         return Math.max(0, scrollData.get(1));
     }
 
-    public int loadedNodes() { return scrollData.get(2); }
-    public int activeNodes() { return scrollData.get(3); }
-    public int totalNodes() { return scrollData.get(4); }
-    public int usedSlots() { return scrollData.get(5); }
-    public int totalSlots() { return scrollData.get(6); }
-
-    public void setQuery(String query, TerminalSortMode sortMode) {
-        if (terminal == null) return;
-        network.setQuery(query, sortMode);
-        updateViewData();
-        broadcastFullState();
-    }
-
-    public void extractExact(ServerPlayer player, int slotId, int amount) {
-        if (terminal == null || !getCarried().isEmpty() || amount <= 0
-                || slotId < NETWORK_START || slotId >= NETWORK_END) return;
-        Slot slot = getSlot(slotId);
-        ItemStack shown = slot.getItem();
-        if (shown.isEmpty()) return;
-        int requested = Math.min(amount, shown.getMaxStackSize());
-        ItemStack extracted = slot.remove(requested);
-        if (!extracted.isEmpty()) {
-            setCarried(extracted);
-            slot.onTake(player, extracted);
-            broadcastChanges();
-        }
-    }
-
-    private void updateViewData() {
-        scrollData.set(0, network.scrollRow());
-        scrollData.set(1, network.maxScrollRows());
-        scrollData.set(2, network.loadedNodes());
-        scrollData.set(3, network.activeNodes());
-        scrollData.set(4, network.totalNodes());
-        scrollData.set(5, network.usedSlots());
-        scrollData.set(6, network.totalSlots());
-    }
-
     public void updateView(String query, NetworkTerminalSort sort, boolean descending) {
         if (terminal == null) return;
         network.setView(query, sort, descending);
-        updateViewData();
+        scrollData.set(0, network.scrollRow());
+        scrollData.set(1, network.maxScrollRows());
         broadcastFullState();
     }
 
@@ -214,9 +179,17 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
 
     @Override
     public void clicked(int slotId, int button, ClickType clickType, Player player) {
-        if (terminal != null && networkSlot(slotId) && clickType == ClickType.PICKUP && !getCarried().isEmpty()) {
+        if (networkSlot(slotId) && clickType == ClickType.PICKUP && !getCarried().isEmpty()) {
             ItemStack carried = getCarried();
             int requested = button == 1 ? 1 : carried.getCount();
+            if (terminal == null) {
+                // Client menus do not have the block entity. Predict the cursor change so a
+                // deposit feels immediate; the authoritative server update restores any
+                // amount that the network could not accept.
+                carried.shrink(requested);
+                setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
+                return;
+            }
             ItemStack offered = carried.copyWithCount(requested);
             int inserted = NetworkInventoryService.insertAutomated(terminal, offered, false)
                     .map(NetworkInventoryService.InsertResult::inserted)
@@ -224,7 +197,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             if (inserted > 0) {
                 carried.shrink(inserted);
                 setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
-                broadcastChanges();
+                network.refresh();
             }
             return;
         }
@@ -237,7 +210,6 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
                 if (!extracted.isEmpty()) {
                     setCarried(extracted);
                     slot.onTake(player, extracted);
-                    broadcastChanges();
                 }
             }
             return;
@@ -269,13 +241,14 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             slot.onQuickCraft(stack, original);
         } else if (index >= CRAFT_START && index < CRAFT_END
                 || index >= PLAYER_START && index < HOTBAR_END) {
+            boolean playerInventorySlot = index >= PLAYER_START && index < HOTBAR_END;
             int inserted = insertIntoNetwork(stack);
             if (inserted <= 0) {
-                if (index >= PLAYER_START && index < PLAYER_END) {
-                    if (!moveItemStackTo(stack, HOTBAR_START, HOTBAR_END, false)) return ItemStack.EMPTY;
-                } else if (index >= HOTBAR_START && index < HOTBAR_END) {
-                    if (!moveItemStackTo(stack, PLAYER_START, PLAYER_END, false)) return ItemStack.EMPTY;
-                } else if (!moveItemStackTo(stack, PLAYER_START, HOTBAR_END, false)) {
+                // A shift-click from the player's inventory means "deposit" in this
+                // terminal. If the network rejects it, leave it where it was instead
+                // of falling back to vanilla's main-inventory/hotbar shuffle.
+                if (playerInventorySlot) return ItemStack.EMPTY;
+                if (!moveItemStackTo(stack, PLAYER_START, HOTBAR_END, false)) {
                     return ItemStack.EMPTY;
                 }
             } else {
@@ -294,10 +267,16 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     }
 
     private int insertIntoNetwork(ItemStack stack) {
-        if (terminal == null || stack.isEmpty()) return 0;
-        return NetworkInventoryService.insertAutomated(terminal, stack.copy(), false)
+        if (stack.isEmpty()) return 0;
+        // The client menu has no terminal block entity. Predict full acceptance so
+        // shift-click deposits do not first jump between inventory rows; the server
+        // restores any rejected or partial remainder to the original slot.
+        if (terminal == null) return player.level().isClientSide ? stack.getCount() : 0;
+        int inserted = NetworkInventoryService.insertAutomated(terminal, stack.copy(), false)
                 .map(NetworkInventoryService.InsertResult::inserted)
                 .orElse(0);
+        if (inserted > 0) network.refresh();
+        return inserted;
     }
 
     private boolean networkSlot(int slot) {
@@ -315,6 +294,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             stack = NetworkInventoryService.insertAutomated(terminal, stack, false)
                     .map(NetworkInventoryService.InsertResult::remainder)
                     .orElse(stack);
+            network.refresh();
         }
         if (!stack.isEmpty()) player.getInventory().placeItemBackInInventory(stack);
     }

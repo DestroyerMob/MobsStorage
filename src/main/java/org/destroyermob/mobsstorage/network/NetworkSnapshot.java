@@ -65,23 +65,39 @@ public record NetworkSnapshot(
         }
     }
 
-    public record Node(GlobalPos pos, String name, int priority, ResourceLocation icon,
-                       boolean origin, boolean active, boolean loaded, boolean missing) {
+    public record Node(
+            GlobalPos pos, String name, int priority, ResourceLocation icon, boolean origin,
+            NodeStatus status, int usedSlots, int totalSlots
+    ) {
         void write(RegistryFriendlyByteBuf buffer) {
             GlobalPos.STREAM_CODEC.encode(buffer, pos);
             buffer.writeUtf(name, 48);
             buffer.writeInt(priority);
             buffer.writeResourceLocation(icon);
             buffer.writeBoolean(origin);
-            buffer.writeBoolean(active);
-            buffer.writeBoolean(loaded);
-            buffer.writeBoolean(missing);
+            buffer.writeEnum(status);
+            buffer.writeVarInt(usedSlots);
+            buffer.writeVarInt(totalSlots);
         }
 
         static Node read(RegistryFriendlyByteBuf buffer) {
             return new Node(GlobalPos.STREAM_CODEC.decode(buffer), buffer.readUtf(48), buffer.readInt(),
-                    buffer.readResourceLocation(), buffer.readBoolean(), buffer.readBoolean(),
-                    buffer.readBoolean(), buffer.readBoolean());
+                    buffer.readResourceLocation(), buffer.readBoolean(), buffer.readEnum(NodeStatus.class),
+                    buffer.readVarInt(), buffer.readVarInt());
+        }
+    }
+
+    public enum NodeStatus {
+        ONLINE,
+        UNLOADED,
+        UNAVAILABLE,
+        MISSING,
+        WRONG_NETWORK,
+        NO_ORIGIN,
+        OUT_OF_RANGE;
+
+        public boolean healthy() {
+            return this == ONLINE;
         }
     }
 }

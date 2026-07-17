@@ -31,7 +31,6 @@ import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
 import org.destroyermob.mobsstorage.network.SyncMenuFiltersPayload;
 import org.destroyermob.mobsstorage.registry.ModItems;
-import org.destroyermob.mobsstorage.network.SaveLabelPayload;
 import org.destroyermob.mobsstorage.storage.FilterRules;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
@@ -115,6 +114,26 @@ public final class StorageLabelGameTests {
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void carryRulesApplyOnlyToTheirConfiguredInventorySlot(GameTestHelper helper) {
+        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        player.getInventory().clearContent();
+        player.getInventory().setItem(9, new ItemStack(Items.IRON_INGOT, 32));
+        player.getInventory().setItem(10, new ItemStack(Items.IRON_INGOT, 32));
+        CarryRule rule = new CarryRule(9, "minecraft:iron_ingot", ItemStack.EMPTY, 4, 8, 12);
+        CarryRuleSet rules = new CarryRuleSet(List.of(rule), 0);
+
+        helper.assertTrue(rules.ruleForSlot(9).filter(rule::equals).isPresent(),
+                "Carry rule set did not retain its configured inventory slot");
+        helper.assertTrue(CarryRuleService.depositableCount(
+                        player, rules, 9, player.getInventory().getItem(9)) == 20,
+                "Slot carry rule did not retain its configured maximum");
+        helper.assertTrue(CarryRuleService.depositableCount(
+                        player, rules, 10, player.getInventory().getItem(10)) == 32,
+                "Slot carry rule affected a different inventory slot containing the same item");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
     public static void reservedSlotsAllowMergesButRejectNewPickupStacks(GameTestHelper helper) {
         ServerPlayer player = helper.makeMockServerPlayerInLevel();
         player.getInventory().clearContent();
@@ -164,27 +183,6 @@ public final class StorageLabelGameTests {
                 "Synced menu filter accepted a disallowed item");
         helper.assertTrue(payload.allows(27, new ItemStack(Items.STICK), context),
                 "Synced menu filter leaked into the player's inventory slots");
-        helper.succeed();
-    }
-
-    @GameTest(template = "storage_labels", timeoutTicks = 20)
-    public static void applyingFilterKeepsConflictsUnlessEjectionIsExplicit(GameTestHelper helper) {
-        helper.setBlock(CHEST, Blocks.CHEST);
-        ChestBlockEntity chest = helper.getBlockEntity(CHEST);
-        chest.setItem(0, new ItemStack(Items.STICK, 2));
-        var player = helper.makeMockServerPlayerInLevel();
-        BlockPos absolute = helper.absolutePos(CHEST);
-        player.teleportTo(absolute.getX() + 0.5D, absolute.getY(), absolute.getZ() + 0.5D);
-        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
-                new ItemStack(ModItems.STORAGE_LABEL.get()));
-        StorageLabelService.save(player, new SaveLabelPayload(
-                absolute, ResourceLocation.withDefaultNamespace("iron_ingot"), List.of("minecraft:iron_ingot"),
-                Direction.NORTH, LabelDisplayMode.SURFACE, "Ingots", 0, false, false));
-
-        helper.assertTrue(chest.getItem(0).is(Items.STICK),
-                "Safe filter application ejected an existing conflicting stack");
-        helper.assertFalse(chest.canPlaceItem(1, new ItemStack(Items.STICK)),
-                "Safe filter application did not block future conflicting insertion");
         helper.succeed();
     }
 

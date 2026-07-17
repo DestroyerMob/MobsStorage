@@ -40,18 +40,15 @@ public final class StorageLabelScreen extends Screen {
     private final List<String> allItemTags;
     private final List<String> allModFilters;
     private final List<String> filterEntries;
-    private final List<ItemStack> contents;
     private EditBox search;
     private EditBox filterInput;
     private EditBox storageName;
     private EditBox priorityInput;
     private Button applyButton;
     private CycleButton<Boolean> alwaysShowButton;
-    private CycleButton<Boolean> ejectConflictsButton;
     private ResourceLocation selectedIcon;
     private LabelDisplayMode displayMode;
     private boolean alwaysShow;
-    private boolean ejectConflicts;
     private int itemOffset;
     private int suggestionOffset;
     private int filterOffset;
@@ -66,7 +63,6 @@ public final class StorageLabelScreen extends Screen {
         this.displayMode = payload.data().displayMode();
         this.alwaysShow = payload.data().alwaysShow();
         this.filterEntries = new ArrayList<>(payload.data().filters());
-        this.contents = payload.contents();
         this.allItems = BuiltInRegistries.ITEM.stream()
                 .filter(item -> item != Items.AIR)
                 .sorted(Comparator.comparing(item -> BuiltInRegistries.ITEM.getKey(item).toString()))
@@ -111,7 +107,7 @@ public final class StorageLabelScreen extends Screen {
         this.search.setHint(Component.translatable("screen.mobsstorage.label.search"));
         this.search.setResponder(value -> itemOffset = 0);
 
-        int inputWidth = Math.max(32, columnWidth - 90);
+        int inputWidth = Math.max(50, columnWidth - 54);
         this.filterInput = addRenderableWidget(new EditBox(
                 this.font, rightColumnLeft(), 74, inputWidth, 20,
                 Component.translatable("screen.mobsstorage.label.filter_input")
@@ -124,15 +120,11 @@ public final class StorageLabelScreen extends Screen {
         });
         addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.add"), button -> commitInput()
-        ).bounds(rightColumnLeft() + inputWidth + 4, 74, 36, 20).build());
-        addRenderableWidget(Button.builder(
-                Component.translatable("screen.mobsstorage.label.learn_contents"), button -> learnFromContents()
-        ).bounds(rightColumnLeft() + inputWidth + 44, 74, 46, 20).build());
+        ).bounds(rightColumnLeft() + inputWidth + 4, 74, 50, 20).build());
 
         int footerY = footerY();
-        int actionWidth = Math.min(72, Math.max(48, (panelWidth() - 20) / 6));
-        int settingArea = panelWidth() - actionWidth * 2 - 16;
-        int settingWidth = Math.max(40, settingArea / 3);
+        int actionWidth = Math.min(80, Math.max(54, (panelWidth() - 16) / 4));
+        int settingWidth = Math.min(130, Math.max(54, (panelWidth() - actionWidth * 2 - 16) / 2));
         addRenderableWidget(CycleButton.builder(StorageLabelScreen::displayModeName)
                 .withValues(LabelDisplayMode.values())
                 .withInitialValue(displayMode)
@@ -150,15 +142,6 @@ public final class StorageLabelScreen extends Screen {
                 (button, value) -> alwaysShow = value
         ));
         this.alwaysShowButton.active = displayMode != LabelDisplayMode.CROSSHAIR;
-        this.ejectConflictsButton = addRenderableWidget(CycleButton.<Boolean>builder(
-                        value -> Component.translatable(value
-                                ? "screen.mobsstorage.label.conflicts_eject"
-                                : "screen.mobsstorage.label.conflicts_keep"))
-                .withValues(false, true)
-                .withInitialValue(ejectConflicts)
-                .create(left + (settingWidth + 4) * 2, footerY, settingWidth, 20,
-                        Component.translatable("screen.mobsstorage.label.conflicts"),
-                        (button, value) -> ejectConflicts = value));
         this.applyButton = addRenderableWidget(Button.builder(
                 Component.translatable("screen.mobsstorage.label.apply"), button -> apply()
         ).bounds(left + panelWidth() - actionWidth * 2 - 4, footerY, actionWidth, 20).build());
@@ -179,20 +162,9 @@ public final class StorageLabelScreen extends Screen {
         }
         PacketDistributor.sendToServer(new SaveLabelPayload(
                 payload.pos(), selectedIcon, List.copyOf(filterEntries), payload.data().face(), displayMode,
-                storageName.getValue(), parsePriority(), alwaysShow, ejectConflicts
+                storageName.getValue(), parsePriority(), alwaysShow
         ));
         onClose();
-    }
-
-    private void learnFromContents() {
-        for (ItemStack stack : contents) {
-            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-            if (!filterEntries.contains(itemId) && filterEntries.size() < FilterRules.MAX_FILTERS) {
-                filterEntries.add(itemId);
-            }
-        }
-        filterOffset = Math.max(0, filterEntries.size() - visibleFilterRows());
-        updateValidation();
     }
 
     private boolean commitInput() {
@@ -266,29 +238,12 @@ public final class StorageLabelScreen extends Screen {
         if (!validationMessage.equals(CommonComponents.EMPTY)) {
             String message = font.plainSubstrByWidth(validationMessage.getString(), panelWidth());
             graphics.drawString(font, message, left, footerY() - 11, 0xFFFF7777, false);
-        } else if (conflictingStacks() > 0) {
-            Component warning = Component.translatable("screen.mobsstorage.label.conflict_warning",
-                    conflictingStacks(), conflictingItems());
-            graphics.drawString(font, font.plainSubstrByWidth(warning.getString(), panelWidth()),
-                    left, footerY() - 11, ejectConflicts ? 0xFFFFAA66 : 0xFFFFCC66, false);
         }
         if (!hoveredStack.isEmpty()) {
             graphics.renderTooltip(font,
                     List.of(hoveredStack.getHoverName(), Component.literal(hoveredItemId.toString())),
                     Optional.empty(), mouseX, mouseY);
         }
-    }
-
-    private int conflictingStacks() {
-        if (filterEntries.isEmpty()) return 0;
-        return (int) contents.stream()
-                .filter(stack -> !FilterRules.matches(stack, filterEntries)).count();
-    }
-
-    private int conflictingItems() {
-        if (filterEntries.isEmpty()) return 0;
-        return contents.stream().filter(stack -> !FilterRules.matches(stack, filterEntries))
-                .mapToInt(ItemStack::getCount).sum();
     }
 
     /** Prevent Screen.render() from invoking Minecraft's post-process blur after the panel is drawn. */
