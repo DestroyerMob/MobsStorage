@@ -47,6 +47,7 @@ import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
 import org.destroyermob.mobsstorage.inventory.CarryRule;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
+import org.destroyermob.mobsstorage.inventory.BundleSelectionService;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalSort;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
@@ -54,6 +55,8 @@ import org.destroyermob.mobsstorage.network.NetworkSnapshot;
 import org.destroyermob.mobsstorage.registry.ModAttachments;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.registry.ModItems;
+import org.destroyermob.mobsstorage.registry.ModDataComponents;
+import net.minecraft.world.item.component.BundleContents;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.LabelDisplayMode;
@@ -70,6 +73,50 @@ public final class NetworkGameTests {
     private static final BlockPos FOURTH = THIRD.south();
 
     private NetworkGameTests() {
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void capabilityBackedStorageSupportsNetworkSlotOperations(GameTestHelper helper) {
+        helper.setBlock(FIRST, Blocks.CHEST);
+        ChestBlockEntity owner = helper.getBlockEntity(FIRST);
+        ItemStackHandler handler = new ItemStackHandler(2);
+        handler.setStackInSlot(0, new ItemStack(Items.IRON_INGOT, 32));
+        NetworkStorageEndpoint endpoint = NetworkStorageEndpoint.itemHandler(owner, handler);
+
+        ItemStack remainder = endpoint.insert(0, new ItemStack(Items.IRON_INGOT, 16), false);
+        helper.assertTrue(remainder.isEmpty() && handler.getStackInSlot(0).getCount() == 48,
+                "Capability-backed endpoint did not merge an inserted stack");
+        ItemStack simulated = endpoint.extract(0, 10, true);
+        helper.assertTrue(simulated.getCount() == 10 && handler.getStackInSlot(0).getCount() == 48,
+                "Simulated capability extraction changed the backing storage");
+        ItemStack extracted = endpoint.extract(0, 10, false);
+        helper.assertTrue(extracted.getCount() == 10 && handler.getStackInSlot(0).getCount() == 38,
+                "Capability-backed endpoint did not extract from the backing storage");
+        helper.assertTrue(endpoint.slots() == 2 && endpoint.slotLimit(1) >= 64,
+                "Capability-backed endpoint did not expose its physical slot shape");
+        helper.succeed();
+    }
+
+    @GameTest(template = "storage_labels", timeoutTicks = 20)
+    public static void bundleSelectionExtractsTheHighlightedStack(GameTestHelper helper) {
+        ItemStack bundle = new ItemStack(Items.BUNDLE);
+        bundle.set(DataComponents.BUNDLE_CONTENTS, new BundleContents(List.of(
+                new ItemStack(Items.TORCH, 8),
+                new ItemStack(Items.DIAMOND, 2),
+                new ItemStack(Items.APPLE, 4))));
+        bundle.set(ModDataComponents.BUNDLE_SELECTED_ITEM.get(), 1);
+
+        ItemStack extracted = BundleSelectionService.removeSelected(bundle);
+        BundleContents remaining = bundle.getOrDefault(DataComponents.BUNDLE_CONTENTS, BundleContents.EMPTY);
+        helper.assertTrue(extracted.is(Items.DIAMOND) && extracted.getCount() == 2,
+                "Bundle selection did not extract the highlighted stack");
+        helper.assertTrue(remaining.size() == 2
+                        && remaining.getItemUnsafe(0).is(Items.TORCH)
+                        && remaining.getItemUnsafe(1).is(Items.APPLE),
+                "Bundle selection disturbed the remaining item order");
+        helper.assertTrue(bundle.getOrDefault(ModDataComponents.BUNDLE_SELECTED_ITEM.get(), -1) == 1,
+                "Bundle selection did not advance to the next available stack");
+        helper.succeed();
     }
 
     @GameTest(template = "storage_labels", timeoutTicks = 20)
@@ -454,6 +501,15 @@ public final class NetworkGameTests {
                         && player.getInventory().getItem(31).is(Items.TORCH),
                 "Vertical scrolling did not swap the selected hotbar column");
 
+        player.getInventory().setItem(4, new ItemStack(Items.IRON_INGOT));
+        player.getInventory().setItem(7, new ItemStack(Items.EMERALD));
+        InventoryManagementService.apply(player, new InventoryActionPayload(
+                InventoryActionPayload.Action.SWAP_HORIZONTAL_SLOT, 7,
+                player.containerMenu.containerId), InventoryProfile.EMPTY);
+        helper.assertTrue(player.getInventory().getItem(4).is(Items.EMERALD)
+                        && player.getInventory().getItem(7).is(Items.IRON_INGOT),
+                "Horizontal scrolling did not swap the selected hotbar slot");
+
         for (int column = 0; column < 9; column++) {
             player.getInventory().setItem(column, new ItemStack(Items.STICK));
             player.getInventory().setItem(18 + column, new ItemStack(Items.COBBLESTONE));
@@ -784,6 +840,12 @@ public final class NetworkGameTests {
         StorageResolver.setLabel(helper.getLevel(), List.of(rawMaterials),
                 label(helper.absolutePos(THIRD), "#c:raw_materials"));
         rawMaterials.setItem(0, new ItemStack(Items.RAW_IRON, 5));
+        rawMaterials.setItem(1, new ItemStack(Items.RAW_IRON, 7));
+        List<ItemStack> contentSummary = NetworkInventoryService.networkContentSummary(terminal);
+        helper.assertTrue(contentSummary.stream().anyMatch(stack -> stack.is(Items.RAW_IRON)
+                        && stack.getCount() == 12),
+                "Network content summary did not aggregate matching physical slots in one entry");
+        rawMaterials.setItem(1, ItemStack.EMPTY);
 
         NetworkSnapshot diagnostics = NetworkService.snapshot(
                 helper.getLevel().getServer(), player, network, network.id());

@@ -20,6 +20,7 @@ public final class CarryRulesControls {
             InputConstants.Type.KEYSYM, InputConstants.KEY_C, "key.categories.mobsstorage");
     private static final int INDICATOR = 0xFFB26DFF;
     private static CarryRulePopup popup;
+    private static int suppressedOpeningCodePoint = -1;
 
     private CarryRulesControls() {
     }
@@ -55,13 +56,28 @@ public final class CarryRulesControls {
         int anchorY = screen.getGuiTop() + hovered.y;
         popup = new CarryRulePopup(screen, inventorySlot, anchorX, anchorY,
                 minecraft.player.getData(ModAttachments.CARRY_RULES));
+        suppressOpeningCharacter(event.getKeyCode(), event.getScanCode());
         event.setCanceled(true);
     }
 
     public static void onCharacterTyped(ScreenEvent.CharacterTyped.Pre event) {
         if (popup == null || popup.parent() != event.getScreen()) return;
+        if (suppressedOpeningCodePoint >= 0) {
+            int expected = suppressedOpeningCodePoint;
+            suppressedOpeningCodePoint = -1;
+            if (Character.toLowerCase(event.getCodePoint()) == Character.toLowerCase(expected)) {
+                event.setCanceled(true);
+                return;
+            }
+        }
         popup.charTyped(event.getCodePoint(), event.getModifiers());
         event.setCanceled(true);
+    }
+
+    private static void suppressOpeningCharacter(int keyCode, int scanCode) {
+        String keyName = GLFW.glfwGetKeyName(keyCode, scanCode);
+        suppressedOpeningCodePoint = keyName == null || keyName.isEmpty()
+                ? -1 : keyName.codePointAt(0);
     }
 
     public static void onMouse(ScreenEvent.MouseButtonPressed.Pre event) {
@@ -132,5 +148,6 @@ public final class CarryRulesControls {
 
     static void closePopup() {
         popup = null;
+        suppressedOpeningCodePoint = -1;
     }
 }

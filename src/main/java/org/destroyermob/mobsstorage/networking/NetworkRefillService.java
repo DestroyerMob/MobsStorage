@@ -11,17 +11,14 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerDestroyItemEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.items.IItemHandler;
-import org.destroyermob.mobsstorage.storage.StorageResolver;
 import org.destroyermob.mobsstorage.inventory.CarryRule;
 import org.destroyermob.mobsstorage.inventory.CarryRuleService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
@@ -77,7 +74,7 @@ public final class NetworkRefillService {
             ItemStack remainder = extracted.stack();
             placeReplacement(player, remainder, preferredHand);
             if (!remainder.isEmpty()) {
-                NetworkInventoryService.insertInto(extracted.sourceContainers(), remainder);
+                returnToSource(extracted.sourceSlots(), remainder);
             }
             player.getInventory().setChanged();
             return true;
@@ -125,30 +122,27 @@ public final class NetworkRefillService {
                 if (level == null || !level.isLoaded(node.pos())) continue;
                 if (NetworkService.findNode(level, node.pos())
                         .filter(value -> value.networkId().equals(network.id())).isEmpty()) continue;
-                for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.pos())) {
-                    if (!(blockEntity instanceof Container container)) continue;
-                    boolean changed = false;
-                    for (int slot = 0; slot < container.getContainerSize() && insertedTotal < wanted; slot++) {
-                        ItemStack stored = container.getItem(slot);
-                        if (!CarryRuleService.belongsToRule(ruleSet, ruleIndex, stored, tooltipContext)) continue;
-                        int capacity = rule.slotted()
-                                ? carrySlotCapacity(player, rule.inventorySlot(), stored)
-                                : inventoryCapacity(player, stored, reservedEmptySlots);
-                        int amount = Math.min(Math.min(wanted - insertedTotal, stored.getCount()), capacity);
-                        if (amount <= 0) continue;
-                        ItemStack removed = container.removeItem(slot, amount);
-                        int inserted = rule.slotted()
-                                ? insertIntoCarrySlot(player, rule.inventorySlot(), removed)
-                                : insertIntoInventory(player, removed, reservedEmptySlots);
-                        insertedTotal += inserted;
-                        changed |= inserted > 0;
-                        if (!removed.isEmpty()) NetworkInventoryService.insertInto(List.of(container), removed);
-                    }
-                    if (changed) container.setChanged();
-                    if (insertedTotal >= wanted) {
-                        player.getInventory().setChanged();
-                        return insertedTotal;
-                    }
+                for (NetworkInventoryService.StorageSlot storageSlot
+                        : NetworkInventoryService.storageSlots(level, node.pos())) {
+                    if (insertedTotal >= wanted) break;
+                    ItemStack stored = storageSlot.stack();
+                    if (!CarryRuleService.belongsToRule(ruleSet, ruleIndex, stored, tooltipContext)) continue;
+                    int capacity = rule.slotted()
+                            ? carrySlotCapacity(player, rule.inventorySlot(), stored)
+                            : inventoryCapacity(player, stored, reservedEmptySlots);
+                    int amount = Math.min(Math.min(wanted - insertedTotal, stored.getCount()), capacity);
+                    if (amount <= 0) continue;
+                    ItemStack removed = storageSlot.remove(amount);
+                    int inserted = rule.slotted()
+                            ? insertIntoCarrySlot(player, rule.inventorySlot(), removed)
+                            : insertIntoInventory(player, removed, reservedEmptySlots);
+                    insertedTotal += inserted;
+                    if (!removed.isEmpty()) storageSlot.insert(removed);
+                    storageSlot.setChanged();
+                }
+                if (insertedTotal >= wanted) {
+                    player.getInventory().setChanged();
+                    return insertedTotal;
                 }
             }
         }
@@ -225,11 +219,9 @@ public final class NetworkRefillService {
         for (GlobalPos node : network.nodes()) {
             ServerLevel level = player.server.getLevel(node.dimension());
             if (level == null || !level.isLoaded(node.pos())) continue;
-            for (BlockEntity blockEntity : StorageResolver.logicalStorage(level, node.pos())) {
-                if (!(blockEntity instanceof Container container)) continue;
-                for (int slot = 0; slot < container.getContainerSize(); slot++)
-                    if (sameItemId(sample, container.getItem(slot))) return true;
-            }
+            for (NetworkInventoryService.StorageSlot slot
+                    : NetworkInventoryService.storageSlots(level, node.pos()))
+                if (sameItemId(sample, slot.stack())) return true;
         }
         return false;
     }
@@ -278,24 +270,35 @@ public final class NetworkRefillService {
             ServerLevel level = player.server.getLevel(node.dimension());
             if (level == null || !level.isLoaded(node.pos())) continue;
             if (NetworkService.findNode(level, node.pos()).filter(value -> value.networkId().equals(network.id())).isEmpty()) continue;
-            List<Container> containers = StorageResolver.logicalStorage(level, node.pos()).stream()
-                    .filter(Container.class::isInstance).map(Container.class::cast).toList();
+            List<NetworkInventoryService.StorageSlot> storageSlots =
+                    NetworkInventoryService.storageSlots(level, node.pos());
             ItemStack result = ItemStack.EMPTY;
-            for (Container container : containers) {
-                for (int slot = 0; slot < container.getContainerSize() && wanted > 0; slot++) {
-                    ItemStack stored = container.getItem(slot);
-                    if (!sameItemId(original, stored)) continue;
-                    int amount = Math.min(wanted, stored.getCount());
-                    ItemStack removed = container.removeItem(slot, amount);
-                    if (result.isEmpty()) result = removed;
-                    else result.grow(removed.getCount());
-                    wanted -= removed.getCount();
-                }
-                container.setChanged();
+            for (NetworkInventoryService.StorageSlot slot : storageSlots) {
+                if (wanted <= 0) break;
+                ItemStack stored = slot.stack();
+                if (!sameItemId(original, stored)) continue;
+                int amount = Math.min(wanted, stored.getCount());
+                ItemStack removed = slot.remove(amount);
+                if (result.isEmpty()) result = removed;
+                else result.grow(removed.getCount());
+                wanted -= removed.getCount();
+                slot.setChanged();
             }
-            if (!result.isEmpty()) return new Extracted(result, containers);
+            if (!result.isEmpty()) return new Extracted(result, storageSlots);
         }
         return new Extracted(ItemStack.EMPTY, List.of());
+    }
+
+    private static void returnToSource(
+            List<NetworkInventoryService.StorageSlot> sourceSlots, ItemStack remainder
+    ) {
+        for (NetworkInventoryService.StorageSlot slot : sourceSlots) {
+            if (remainder.isEmpty()) return;
+            ItemStack existing = slot.stack();
+            if (existing.isEmpty() || ItemStack.isSameItemSameComponents(existing, remainder)) {
+                remainder = slot.insert(remainder);
+            }
+        }
     }
 
     static boolean sameItemId(ItemStack expected, ItemStack candidate) {
@@ -306,5 +309,5 @@ public final class NetworkRefillService {
     }
 
     private record PendingRefill(ItemStack original, InteractionHand hand) {}
-    private record Extracted(ItemStack stack, List<Container> sourceContainers) {}
+    private record Extracted(ItemStack stack, List<NetworkInventoryService.StorageSlot> sourceSlots) {}
 }

@@ -10,6 +10,9 @@
     "ItemStackMixin",
     "SlotMixin"
   ],
+  "client": [
+    "MouseTweaksNeoMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

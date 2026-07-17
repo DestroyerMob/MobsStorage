@@ -21,17 +21,19 @@ Mobs Storage adds configurable storage labels to Minecraft 1.21.1 on NeoForge. A
 - Within 256 blocks on each axis of any linked storage, a member automatically receives a replacement stack or tool after the last inventory replacement is consumed or broken. The network origin is not used for refills.
 - Configurable keybinds provide item, category, and quantity sorting plus consolidate, transfer-matching, and safe-deposit actions while an inventory or container screen is open. Sorting targets the inventory section under the cursor, including the player inventory, hotbar, vanilla containers, and compatible modded item-handler inventories. Safe deposit keeps the hotbar, armour, favourite item IDs, and locked slots.
 - Configure Mobs Storage controls under Options > Controls > Key Binds. Carry rules default to C; hover a player slot and press it to open that slot's editor. Hover a player slot and use the configured lock or favourite key; locked and favourite slots are also protected from shift-click quick deposit.
-- Hold Ctrl and scroll to preview the selected hotbar column vertically through the three inventory rows, or hold Ctrl+Shift and scroll to preview an entire inventory row as the next hotbar. The HUD shows the pending selection and performs one server-authoritative swap when the modifier chord is released.
+- Hold Ctrl and scroll to preview the selected hotbar column vertically through the three inventory rows, hold Ctrl+Shift and scroll to preview an entire inventory row as the next hotbar, or hold Alt/Option and scroll to choose another hotbar slot for a horizontal swap. The HUD shows the pending selection and performs one server-authoritative swap when the modifier chord is released.
 - Hover a hotbar slot and use the configured preference key to remember its current item, or use the network-restock key over any player slot. Slot markers show the active rules and name a nearby network that can currently supply a configured item.
 - Each player-inventory slot can have one carry rule. Hover it and press the Carry Rule key to open a compact, sharp popup beside the slot; choose an exact stack or label-language filter and set minimum, target, and maximum counts. Nearby networks refill that specific slot below minimum, while safe deposit keeps its configured maximum.
 - Broken tools check compatible carried item-handler storage for the same registered item ID before falling back to network refill, so durability and other components do not prevent replacement.
+- Hover a bundle in any open inventory and scroll to highlight a specific contained stack. Right-click the bundle with an empty cursor to extract the highlighted stack.
+- Link capability-backed individual storage blocks to a network. Functional Storage drawers, compacting drawers, and armory cabinets are supported when installed; Sophisticated Storage chests, barrels, limited barrels, and shulker boxes are supported optionally without a hard dependency.
 
-Custom/networked storage systems such as Sophisticated Storage, Tom's Simple Storage, Ender Storage, and Lootr are intentionally outside the first compatibility slice.
+Storage controllers, controller extensions, Functional Storage fluid and Ender drawers, Tom's Simple Storage, Ender Storage, and Lootr are intentionally excluded so shared, recursive, or per-player inventories cannot be counted twice or bypass their ownership rules.
 
 ## Project Facts
 
 - Mod id: `mobsstorage`
-- Version: `0.1.0`
+- Version: `0.3.0`
 - Minecraft: `1.21.1`
 - NeoForge: `21.1.234`
 - Java: `21`

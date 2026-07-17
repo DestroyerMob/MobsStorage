@@ -10,6 +10,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.destroyermob.mobsstorage.client.MobsStorageClient;
 import org.destroyermob.mobsstorage.inventory.InventoryManagementService;
 import org.destroyermob.mobsstorage.inventory.CarryRuleService;
+import org.destroyermob.mobsstorage.inventory.BundleSelectionService;
 import org.destroyermob.mobsstorage.menu.NetworkTerminalMenu;
 import org.destroyermob.mobsstorage.storage.LabelData;
 import org.destroyermob.mobsstorage.storage.StorageLabelService;
@@ -18,7 +19,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "9";
+    private static final String NETWORK_VERSION = "10";
 
     private ModNetworking() {
     }
@@ -48,6 +49,8 @@ public final class ModNetworking {
                 ModNetworking::handleSaveCarryRules);
         registrar.playToServer(UpdateTerminalViewPayload.TYPE, UpdateTerminalViewPayload.STREAM_CODEC,
                 ModNetworking::handleUpdateTerminalView);
+        registrar.playToServer(SelectBundleItemPayload.TYPE, SelectBundleItemPayload.STREAM_CODEC,
+                ModNetworking::handleSelectBundleItem);
     }
 
     private static void handleOpenEditor(OpenLabelEditorPayload payload, IPayloadContext context) {
@@ -108,6 +111,14 @@ public final class ModNetworking {
                     && player.containerMenu.containerId == payload.containerId()
                     && player.containerMenu instanceof NetworkTerminalMenu menu) {
                 menu.updateView(payload.query(), payload.sort(), payload.descending());
+            }
+        });
+    }
+
+    private static void handleSelectBundleItem(SelectBundleItemPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (context.player() instanceof ServerPlayer player) {
+                BundleSelectionService.select(player, payload);
             }
         });
     }

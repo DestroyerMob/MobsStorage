@@ -135,7 +135,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
     @Override
     public void broadcastChanges() {
         if (terminal != null) {
-            network.refresh();
+            network.refreshIfDue();
             scrollData.set(0, network.scrollRow());
             scrollData.set(1, network.maxScrollRows());
         }
@@ -197,6 +197,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             if (inserted > 0) {
                 carried.shrink(inserted);
                 setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
+                network.refresh();
             }
             return;
         }
@@ -271,9 +272,11 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
         // shift-click deposits do not first jump between inventory rows; the server
         // restores any rejected or partial remainder to the original slot.
         if (terminal == null) return player.level().isClientSide ? stack.getCount() : 0;
-        return NetworkInventoryService.insertAutomated(terminal, stack.copy(), false)
+        int inserted = NetworkInventoryService.insertAutomated(terminal, stack.copy(), false)
                 .map(NetworkInventoryService.InsertResult::inserted)
                 .orElse(0);
+        if (inserted > 0) network.refresh();
+        return inserted;
     }
 
     private boolean networkSlot(int slot) {
@@ -291,6 +294,7 @@ public final class NetworkTerminalMenu extends AbstractContainerMenu {
             stack = NetworkInventoryService.insertAutomated(terminal, stack, false)
                     .map(NetworkInventoryService.InsertResult::remainder)
                     .orElse(stack);
+            network.refresh();
         }
         if (!stack.isEmpty()) player.getInventory().placeItemBackInInventory(stack);
     }

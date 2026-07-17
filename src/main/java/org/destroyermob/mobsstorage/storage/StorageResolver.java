@@ -28,13 +28,20 @@ public final class StorageResolver {
     }
 
     public static boolean networkEligible(Level level, BlockPos pos) {
-        return eligible(level, pos) || level.getBlockEntity(pos) instanceof NetworkInterfaceBlockEntity
-                || level.getBlockEntity(pos) instanceof NetworkPortBlockEntity;
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        return eligible(level, pos)
+                || (level.getBlockState(pos).is(ModTags.NETWORK_STORAGE) && blockEntity != null)
+                || blockEntity instanceof NetworkInterfaceBlockEntity
+                || blockEntity instanceof NetworkPortBlockEntity;
     }
 
     public static List<BlockEntity> logicalStorage(Level level, BlockPos pos) {
         BlockEntity first = level.getBlockEntity(pos);
         if (first instanceof NetworkInterfaceBlockEntity || first instanceof NetworkPortBlockEntity) {
+            return List.of(first);
+        }
+        if (first != null && level.getBlockState(pos).is(ModTags.NETWORK_STORAGE)
+                && !(first instanceof Container)) {
             return List.of(first);
         }
         if (!(first instanceof Container) || !level.getBlockState(pos).is(ModTags.LABELABLE_STORAGE)) {

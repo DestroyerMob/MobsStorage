@@ -9,6 +9,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.items.IItemHandler;
+import org.destroyermob.mobsstorage.networking.NetworkPortItemHandler;
 import org.destroyermob.mobsstorage.registry.ModBlockEntities;
 import org.destroyermob.mobsstorage.registry.ModBlocks;
 import org.destroyermob.mobsstorage.storage.FilterRules;
@@ -16,10 +18,12 @@ import org.destroyermob.mobsstorage.storage.FilterRules;
 public final class NetworkPortBlockEntity extends BlockEntity implements Container {
     public static final int MAX_FILTER_LENGTH = 256;
     private static final String OUTPUT_FILTER_TAG = "OutputFilter";
+    private final IItemHandler automationHandler;
     private String outputFilter = "";
 
     public NetworkPortBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.NETWORK_PORT.get(), pos, state);
+        automationHandler = new NetworkPortItemHandler(this);
     }
 
     public boolean isInput() {
@@ -28,6 +32,10 @@ public final class NetworkPortBlockEntity extends BlockEntity implements Contain
 
     public boolean isOutput() {
         return getBlockState().is(ModBlocks.NETWORK_OUTPUT.get());
+    }
+
+    public IItemHandler automationHandler() {
+        return automationHandler;
     }
 
     public String outputFilter() {

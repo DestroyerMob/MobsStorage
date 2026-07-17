@@ -20,6 +20,7 @@ final class NetworkTerminalView implements Container {
     static final int COLUMNS = 9;
     static final int VISIBLE_ROWS = 6;
     static final int VISIBLE_SIZE = COLUMNS * VISIBLE_ROWS;
+    private static final long INVENTORY_REFRESH_INTERVAL_TICKS = 5L;
     private final NonNullList<ItemStack> items = NonNullList.withSize(VISIBLE_SIZE, ItemStack.EMPTY);
     private final NonNullList<ItemStack> ingredientItems;
     private final List<NetworkInventoryService.StorageSlot> ingredientSlots;
@@ -31,6 +32,8 @@ final class NetworkTerminalView implements Container {
     private boolean descending;
     private int scrollRow;
     private int maxScrollRows;
+    private List<Entry> contentEntries = List.of();
+    private long lastInventoryRefreshTick = Long.MIN_VALUE;
 
     NetworkTerminalView(@Nullable NetworkInterfaceBlockEntity endpoint, int ingredientIndexSize) {
         this.endpoint = endpoint;
@@ -43,13 +46,26 @@ final class NetworkTerminalView implements Container {
     void refresh() {
         if (endpoint == null) return;
         List<Entry> entries = new ArrayList<>();
-        for (ItemStack stored : NetworkInventoryService.networkContents(endpoint)) {
-            Entry match = entries.stream()
-                    .filter(entry -> ItemStack.isSameItemSameComponents(entry.sample, stored))
-                    .findFirst().orElse(null);
-            if (match == null) entries.add(new Entry(stored.copyWithCount(1), stored.getCount()));
-            else match.count = (int) Math.min(Integer.MAX_VALUE, (long) match.count + stored.getCount());
+        for (ItemStack stored : NetworkInventoryService.networkContentSummary(endpoint)) {
+            entries.add(new Entry(stored.copyWithCount(1), stored.getCount()));
         }
+        contentEntries = List.copyOf(entries);
+        lastInventoryRefreshTick = endpoint.getLevel() == null
+                ? Long.MIN_VALUE : endpoint.getLevel().getGameTime();
+        rebuildView();
+    }
+
+    void refreshIfDue() {
+        if (endpoint == null || endpoint.getLevel() == null) return;
+        long gameTime = endpoint.getLevel().getGameTime();
+        if (lastInventoryRefreshTick == Long.MIN_VALUE
+                || gameTime - lastInventoryRefreshTick >= INVENTORY_REFRESH_INTERVAL_TICKS) {
+            refresh();
+        }
+    }
+
+    private void rebuildView() {
+        List<Entry> entries = new ArrayList<>(contentEntries);
         if (!queryValid) {
             entries.clear();
         } else if (!query.isBlank()) {
@@ -79,12 +95,12 @@ final class NetworkTerminalView implements Container {
         this.sort = sort == null ? NetworkTerminalSort.ITEM : sort;
         this.descending = descending;
         this.scrollRow = 0;
-        refresh();
+        rebuildView();
     }
 
     void setScrollRow(int row) {
         scrollRow = Math.max(0, Math.min(row, maxScrollRows));
-        refresh();
+        rebuildView();
     }
 
     int scrollRow() {

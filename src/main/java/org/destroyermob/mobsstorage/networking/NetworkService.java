@@ -544,14 +544,11 @@ public final class NetworkService {
             status = NetworkSnapshot.NodeStatus.OUT_OF_RANGE;
         }
         int usedSlots = 0;
-        int totalSlots = 0;
-        for (BlockEntity blockEntity : storage) {
-            if (!(blockEntity instanceof Container container)) continue;
-            totalSlots += container.getContainerSize();
-            for (int slot = 0; slot < container.getContainerSize(); slot++) {
-                if (!container.getItem(slot).isEmpty()) usedSlots++;
-            }
-        }
+        List<NetworkInventoryService.StorageSlot> storageSlots =
+                NetworkInventoryService.storageSlots(level, liveNode.get().anchor());
+        int totalSlots = storageSlots.size();
+        for (NetworkInventoryService.StorageSlot slot : storageSlots)
+            if (!slot.stack().isEmpty()) usedSlots++;
         return new NodeDiagnostics(status, usedSlots, totalSlots);
     }
 
@@ -638,6 +635,9 @@ public final class NetworkService {
         if (level.getBlockState(pos).is(ModBlocks.NETWORK_OUTPUT.get())) {
             return BuiltInRegistries.ITEM.getKey(ModItems.NETWORK_OUTPUT.get());
         }
-        return StorageResolver.findLabel(level, pos).map(LabelData::icon).orElse(LabelData.AIR);
+        Optional<ResourceLocation> labelIcon = StorageResolver.findLabel(level, pos).map(LabelData::icon);
+        if (labelIcon.isPresent()) return labelIcon.get();
+        ItemStack blockItem = new ItemStack(level.getBlockState(pos).getBlock());
+        return blockItem.isEmpty() ? LabelData.AIR : BuiltInRegistries.ITEM.getKey(blockItem.getItem());
     }
 }

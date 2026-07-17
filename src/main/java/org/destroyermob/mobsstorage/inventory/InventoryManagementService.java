@@ -68,6 +68,8 @@ public final class InventoryManagementService {
             swapVerticalSlot(player, payload.slot());
         } else if (action == InventoryActionPayload.Action.SWAP_HOTBAR) {
             swapHotbar(player, payload.slot());
+        } else if (action == InventoryActionPayload.Action.SWAP_HORIZONTAL_SLOT) {
+            swapHorizontalSlot(player, payload.slot());
         }
         applyHotbarPreferences(player, profile);
         player.getInventory().setChanged();
@@ -325,6 +327,14 @@ public final class InventoryManagementService {
         Inventory inventory = player.getInventory();
         stopUsingSelectedItem(player);
         for (int column = 0; column < 9; column++) swap(inventory, column, rowStart + column);
+    }
+
+    private static void swapHorizontalSlot(ServerPlayer player, int target) {
+        Inventory inventory = player.getInventory();
+        int source = inventory.selected;
+        if (source < 0 || source > 8 || target < 0 || target > 8 || target == source) return;
+        stopUsingSelectedItem(player);
+        swap(inventory, source, target);
     }
 
     private static void stopUsingSelectedItem(ServerPlayer player) {

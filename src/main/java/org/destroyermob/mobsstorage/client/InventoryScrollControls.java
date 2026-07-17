@@ -17,7 +17,7 @@ import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 
 /**
- * Provides deferred inventory-row scrolling while the player is outside a menu.
+ * Provides deferred inventory scrolling while the player is outside a menu.
  * The client only previews the requested move; the server performs one validated
  * swap when the modifier chord is released.
  */
@@ -43,13 +43,17 @@ public final class InventoryScrollControls {
 
     public static void onMouseScroll(InputEvent.MouseScrollingEvent event) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (!canStart(minecraft) || !Screen.hasControlDown()) return;
+        if (!canStart(minecraft)) return;
+
+        Mode mode;
+        if (Screen.hasAltDown()) mode = Mode.HORIZONTAL_SLOT;
+        else if (Screen.hasControlDown()) mode = Screen.hasShiftDown() ? Mode.HOTBAR : Mode.VERTICAL_SLOT;
+        else return;
 
         double delta = event.getScrollDeltaY();
         if (delta == 0.0D) return;
         event.setCanceled(true);
 
-        Mode mode = Screen.hasShiftDown() ? Mode.HOTBAR : Mode.VERTICAL_SLOT;
         int selected = minecraft.player.getInventory().selected;
         if (preview == null || preview.mode != mode || preview.hotbarSlot != selected) {
             preview = new Preview(mode, selected);
@@ -59,7 +63,8 @@ public final class InventoryScrollControls {
         scrollRemainder += delta;
         int steps = (int) scrollRemainder;
         if (steps != 0) {
-            preview.position = Math.floorMod(preview.position - steps, 4);
+            int positions = mode == Mode.HORIZONTAL_SLOT ? Inventory.getSelectionSize() : 4;
+            preview.position = Math.floorMod(preview.position - steps, positions);
             scrollRemainder -= steps;
         }
     }
@@ -72,8 +77,9 @@ public final class InventoryScrollControls {
             return;
         }
 
-        boolean chordHeld = Screen.hasControlDown()
-                && (preview.mode != Mode.HOTBAR || Screen.hasShiftDown());
+        boolean chordHeld = preview.mode == Mode.HORIZONTAL_SLOT
+                ? Screen.hasAltDown()
+                : Screen.hasControlDown() && (preview.mode != Mode.HOTBAR || Screen.hasShiftDown());
         if (!chordHeld) commit(minecraft);
     }
 
@@ -83,7 +89,8 @@ public final class InventoryScrollControls {
 
         graphics.pose().pushPose();
         if (preview.mode == Mode.VERTICAL_SLOT) renderVertical(graphics, minecraft);
-        else renderHotbar(graphics, minecraft);
+        else if (preview.mode == Mode.HOTBAR) renderHotbar(graphics, minecraft);
+        else renderHorizontal(graphics);
         graphics.pose().popPose();
     }
 
@@ -99,6 +106,13 @@ public final class InventoryScrollControls {
     private static void commit(Minecraft minecraft) {
         Preview finished = preview;
         clear();
+        if (finished.mode == Mode.HORIZONTAL_SLOT) {
+            if (finished.position == finished.hotbarSlot) return;
+            PacketDistributor.sendToServer(new InventoryActionPayload(
+                    InventoryActionPayload.Action.SWAP_HORIZONTAL_SLOT,
+                    finished.position, minecraft.player.containerMenu.containerId));
+            return;
+        }
         if (finished.position == HOTBAR_POSITION) return;
 
         int rowStart = 9 + finished.position * 9;
@@ -165,6 +179,15 @@ public final class InventoryScrollControls {
         graphics.pose().popPose();
     }
 
+    private static void renderHorizontal(GuiGraphics graphics) {
+        int x = graphics.guiWidth() / 2 - HOTBAR_WIDTH / 2;
+        int y = graphics.guiHeight() - HOTBAR_HEIGHT;
+        RenderSystem.enableBlend();
+        graphics.blitSprite(HOTBAR_SELECTION_SPRITE,
+                x - 1 + preview.position * SLOT_SPACING, y - 1, 24, 23);
+        RenderSystem.disableBlend();
+    }
+
     private static void renderItem(GuiGraphics graphics, Minecraft minecraft, ItemStack stack,
                                    int x, int y) {
         if (!stack.isEmpty()) {
@@ -178,7 +201,7 @@ public final class InventoryScrollControls {
         scrollRemainder = 0.0D;
     }
 
-    private enum Mode { VERTICAL_SLOT, HOTBAR }
+    private enum Mode { VERTICAL_SLOT, HOTBAR, HORIZONTAL_SLOT }
 
     private static final class Preview {
         private final Mode mode;
@@ -188,6 +211,7 @@ public final class InventoryScrollControls {
         private Preview(Mode mode, int hotbarSlot) {
             this.mode = mode;
             this.hotbarSlot = hotbarSlot;
+            if (mode == Mode.HORIZONTAL_SLOT) position = hotbarSlot;
         }
     }
 }
