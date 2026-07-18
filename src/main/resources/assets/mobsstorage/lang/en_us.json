@@ -196,5 +196,6 @@
   "screen.mobsstorage.carry.page.amounts": "Amounts",
   "tooltip.mobsstorage.bundle_scroll": "Scroll to select · Right-click to take",
   "tooltip.mobsstorage.bundle_take": "Right-click to take",
-  "screen.mobsstorage.carry.no_suggestion": "No suggestion"
+  "screen.mobsstorage.carry.no_suggestion": "No suggestion",
+  "screen.mobsstorage.network.remove_member_named": "Remove %s"
 }

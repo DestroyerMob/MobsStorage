@@ -57,6 +57,7 @@ public final class NetworkManagerScreen extends Screen {
 
     @Override
     protected void init() {
+        super.init();
         int createY = panelBottom() - 28;
         int createWidth = sidebarWidth() - 70;
         createName = addRenderableWidget(new EditBox(font, panelLeft() + 8, createY, createWidth, 20,
@@ -145,6 +146,60 @@ public final class NetworkManagerScreen extends Screen {
             addRenderableWidget(Button.builder(Component.translatable("screen.mobsstorage.network.leave"), button ->
                     send(NetworkActionPayload.Action.LEAVE, selected.id(), NetworkActionPayload.NONE, ""))
                     .bounds(panelRight() - 72, bottomY, 62, 20).build());
+        }
+        addControllerListControls(selected);
+    }
+
+    private void addControllerListControls(NetworkSnapshot selected) {
+        ControllerFocusButton firstNetwork = null;
+        for (int visible = 0; visible < visibleNetworkRows(); visible++) {
+            int index = networkOffset + visible;
+            if (index >= networks.size()) {
+                break;
+            }
+            NetworkSnapshot network = networks.get(index);
+            int rowY = networkListTop() + visible * NETWORK_ROW_HEIGHT;
+            ControllerFocusButton button = addRenderableWidget(new ControllerFocusButton(
+                    panelLeft() + 8, rowY, sidebarWidth() - 16, NETWORK_ROW_HEIGHT - 3,
+                    Component.literal(network.name()), () -> selectNetwork(index)
+            ));
+            if (firstNetwork == null) {
+                firstNetwork = button;
+            }
+        }
+        if (networks.size() > visibleNetworkRows()) {
+            addRenderableWidget(Button.builder(Component.literal("▲"), button -> scrollNetworks(-1))
+                    .bounds(panelLeft() + sidebarWidth() - 48, panelTop() + HEADER_HEIGHT + 2, 18, 18).build());
+            addRenderableWidget(Button.builder(Component.literal("▼"), button -> scrollNetworks(1))
+                    .bounds(panelLeft() + sidebarWidth() - 26, panelTop() + HEADER_HEIGHT + 2, 18, 18).build());
+        }
+        if (selected != null && page == Page.ACCESS && selected.owner()) {
+            for (int visible = 0; visible < visiblePageRows(); visible++) {
+                int index = memberOffset + visible;
+                if (index >= selected.members().size()) {
+                    break;
+                }
+                NetworkSnapshot.Member member = selected.members().get(index);
+                int y = pageListTop() + visible * 24;
+                addRenderableWidget(new ControllerFocusButton(
+                        panelRight() - 30, y + 2, 18, 16,
+                        Component.translatable("screen.mobsstorage.network.remove_member_named", member.name()),
+                        () -> send(NetworkActionPayload.Action.REMOVE_MEMBER,
+                                selected.id(), member.id(), "")
+                ));
+            }
+        }
+        int pageSize = visiblePageRows();
+        int itemCount = selected == null ? 0
+                : page == Page.ACCESS ? selected.members().size() : selected.nodes().size();
+        if (itemCount > pageSize) {
+            addRenderableWidget(Button.builder(Component.literal("▲"), button -> scrollPage(-1))
+                    .bounds(panelRight() - 48, pageHeadingY(), 18, 18).build());
+            addRenderableWidget(Button.builder(Component.literal("▼"), button -> scrollPage(1))
+                    .bounds(panelRight() - 26, pageHeadingY(), 18, 18).build());
+        }
+        if (firstNetwork != null && getFocused() == null) {
+            setInitialFocus(firstNetwork);
         }
     }
 
@@ -408,10 +463,7 @@ public final class NetworkManagerScreen extends Screen {
                 sidebarWidth() - 16, visibleNetworkRows() * NETWORK_ROW_HEIGHT)) {
             int index = networkOffset + (int) ((mouseY - networkListTop()) / NETWORK_ROW_HEIGHT);
             if (index >= 0 && index < networks.size()) {
-                selectedIndex = index;
-                memberOffset = 0;
-                nodeOffset = 0;
-                rebuildWidgets();
+                selectNetwork(index);
                 return true;
             }
         }
@@ -450,6 +502,37 @@ public final class NetworkManagerScreen extends Screen {
         page = value;
         nodeOffset = 0;
         memberOffset = 0;
+        rebuildWidgets();
+    }
+
+    private void selectNetwork(int index) {
+        if (index < 0 || index >= networks.size()) {
+            return;
+        }
+        selectedIndex = index;
+        memberOffset = 0;
+        nodeOffset = 0;
+        rebuildWidgets();
+    }
+
+    private void scrollNetworks(int rows) {
+        networkOffset = clamp(networkOffset + rows, 0,
+                Math.max(0, networks.size() - visibleNetworkRows()));
+        rebuildWidgets();
+    }
+
+    private void scrollPage(int rows) {
+        NetworkSnapshot selected = selected();
+        if (selected == null) {
+            return;
+        }
+        if (page == Page.ACCESS) {
+            memberOffset = clamp(memberOffset + rows, 0,
+                    Math.max(0, selected.members().size() - visiblePageRows()));
+        } else {
+            nodeOffset = clamp(nodeOffset + rows, 0,
+                    Math.max(0, selected.nodes().size() - visiblePageRows()));
+        }
         rebuildWidgets();
     }
 
