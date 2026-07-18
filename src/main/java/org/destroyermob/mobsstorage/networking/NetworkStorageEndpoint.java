@@ -10,7 +10,7 @@ import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.items.IItemHandler;
 
 /** A common slot view over vanilla containers and capability-backed modded storage. */
-final class NetworkStorageEndpoint {
+public final class NetworkStorageEndpoint {
     private final BlockEntity owner;
     private final Container container;
     private final IItemHandler itemHandler;
@@ -25,7 +25,7 @@ final class NetworkStorageEndpoint {
         return new NetworkStorageEndpoint(owner, null, itemHandler);
     }
 
-    static Optional<NetworkStorageEndpoint> find(BlockEntity blockEntity) {
+    public static Optional<NetworkStorageEndpoint> find(BlockEntity blockEntity) {
         if (blockEntity instanceof Container container) {
             return Optional.of(new NetworkStorageEndpoint(blockEntity, container, null));
         }
@@ -44,19 +44,19 @@ final class NetworkStorageEndpoint {
                 : Optional.of(new NetworkStorageEndpoint(blockEntity, null, handler));
     }
 
-    Object identity() {
+    public Object identity() {
         return container != null ? container : itemHandler;
     }
 
-    int slots() {
+    public int slots() {
         return container != null ? container.getContainerSize() : itemHandler.getSlots();
     }
 
-    ItemStack stack(int slot) {
+    public ItemStack stack(int slot) {
         return container != null ? container.getItem(slot) : itemHandler.getStackInSlot(slot);
     }
 
-    ItemStack insert(int slot, ItemStack offered, boolean simulate) {
+    public ItemStack insert(int slot, ItemStack offered, boolean simulate) {
         if (offered.isEmpty()) return ItemStack.EMPTY;
         if (itemHandler != null) return itemHandler.insertItem(slot, offered, simulate);
         if (!container.canPlaceItem(slot, offered)) return offered;
@@ -78,7 +78,7 @@ final class NetworkStorageEndpoint {
         return remainder;
     }
 
-    ItemStack extract(int slot, int amount, boolean simulate) {
+    public ItemStack extract(int slot, int amount, boolean simulate) {
         if (amount <= 0) return ItemStack.EMPTY;
         if (itemHandler != null) return itemHandler.extractItem(slot, amount, simulate);
         ItemStack stored = container.getItem(slot);

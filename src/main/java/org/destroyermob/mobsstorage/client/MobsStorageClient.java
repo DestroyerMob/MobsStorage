@@ -35,6 +35,7 @@ public final class MobsStorageClient {
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, BundleSelectionControls::onMouseScrolled);
         NeoForge.EVENT_BUS.addListener(BundleSelectionControls::onGatherTooltip);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onClientTick);
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, InventoryControls::onKey);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onMouse);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onRender);
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, TerminalInputCapture::onKeyPressed);

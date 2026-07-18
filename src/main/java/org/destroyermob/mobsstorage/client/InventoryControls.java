@@ -65,6 +65,21 @@ public final class InventoryControls {
         }
     }
 
+    public static void onKey(ScreenEvent.KeyPressed.Pre event) {
+        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
+        if (screen instanceof NetworkTerminalScreen terminal && terminal.isSearchFocused()) return;
+        if (CarryRulesControls.blocksContainerShortcuts(screen)) return;
+        for (ActionBinding binding : BINDINGS) {
+            if (!binding.key().matches(event.getKeyCode(), event.getScanCode())) continue;
+            // The physical key event also increments the KeyMapping click count. Drain it here
+            // so the client-tick fallback used by correlated controller inputs cannot toggle twice.
+            while (binding.key().consumeClick()) {
+            }
+            if (trigger(screen, binding)) event.setCanceled(true);
+            return;
+        }
+    }
+
     public static void onMouse(ScreenEvent.MouseButtonPressed.Pre event) {
         if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
         for (ActionBinding binding : BINDINGS) {

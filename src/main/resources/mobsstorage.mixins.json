@@ -6,11 +6,15 @@
     "AbstractContainerMenuMixin",
     "BaseContainerBlockEntityMixin",
     "CompoundContainerAccessor",
+    "CraftingMenuMixin",
     "HopperBlockEntityMixin",
     "ItemStackMixin",
+    "ServerPlaceRecipeMixin",
     "SlotMixin"
   ],
   "client": [
+    "compat.EmiCraftingRecipeHandlerMixin",
+    "compat.JeiRecipeTransferInfoMixin",
     "MouseTweaksNeoMixin"
   ],
   "injectors": {
