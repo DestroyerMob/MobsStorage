@@ -77,10 +77,31 @@ public final class InventoryScrollControls {
             return;
         }
 
+        if (preview.controller) return;
+
         boolean chordHeld = preview.mode == Mode.HORIZONTAL_SLOT
                 ? Screen.hasAltDown()
                 : Screen.hasControlDown() && (preview.mode != Mode.HOTBAR || Screen.hasShiftDown());
         if (!chordHeld) commit(minecraft);
+    }
+
+    public static void controllerStep(Mode mode, int direction) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!canStart(minecraft) || direction == 0) return;
+        int selected = minecraft.player.getInventory().selected;
+        if (preview == null || !preview.controller || preview.mode != mode || preview.hotbarSlot != selected) {
+            preview = new Preview(mode, selected, true);
+        }
+        int positions = mode == Mode.HORIZONTAL_SLOT ? Inventory.getSelectionSize() : 4;
+        preview.position = Math.floorMod(preview.position + Integer.signum(direction), positions);
+    }
+
+    public static void finishControllerLayer() {
+        if (preview != null && preview.controller) {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (canContinue(minecraft)) commit(minecraft);
+            else clear();
+        }
     }
 
     private static void renderHud(GuiGraphics graphics, DeltaTracker deltaTracker) {
@@ -201,16 +222,22 @@ public final class InventoryScrollControls {
         scrollRemainder = 0.0D;
     }
 
-    private enum Mode { VERTICAL_SLOT, HOTBAR, HORIZONTAL_SLOT }
+    public enum Mode { VERTICAL_SLOT, HOTBAR, HORIZONTAL_SLOT }
 
     private static final class Preview {
         private final Mode mode;
         private final int hotbarSlot;
+        private final boolean controller;
         private int position = HOTBAR_POSITION;
 
         private Preview(Mode mode, int hotbarSlot) {
+            this(mode, hotbarSlot, false);
+        }
+
+        private Preview(Mode mode, int hotbarSlot, boolean controller) {
             this.mode = mode;
             this.hotbarSlot = hotbarSlot;
+            this.controller = controller;
             if (mode == Mode.HORIZONTAL_SLOT) position = hotbarSlot;
         }
     }

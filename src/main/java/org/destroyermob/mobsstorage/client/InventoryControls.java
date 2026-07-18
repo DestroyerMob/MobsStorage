@@ -9,6 +9,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
@@ -38,16 +39,29 @@ public final class InventoryControls {
         BINDINGS.forEach(binding -> event.register(binding.key()));
     }
 
-    public static void onKey(ScreenEvent.KeyPressed.Pre event) {
-        if (!(event.getScreen() instanceof AbstractContainerScreen<?> screen)) return;
-        if (screen instanceof NetworkTerminalScreen terminal && terminal.isSearchFocused()) return;
-        if (CarryRulesControls.blocksContainerShortcuts(screen)) return;
+    public static KeyMapping sortItemKey() {
+        return BINDINGS.getFirst().key();
+    }
+
+    public static boolean triggerControllerSort() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!(minecraft.screen instanceof AbstractContainerScreen<?> screen)) return false;
+        if (screen instanceof NetworkTerminalScreen terminal && terminal.isSearchFocused()) return false;
+        if (CarryRulesControls.blocksContainerShortcuts(screen)) return false;
+        return trigger(screen, BINDINGS.getFirst());
+    }
+
+    public static void onClientTick(ClientTickEvent.Post event) {
+        Minecraft minecraft = Minecraft.getInstance();
         for (ActionBinding binding : BINDINGS) {
-            if (!binding.key().matches(event.getKeyCode(), event.getScanCode())) continue;
-            if (trigger(screen, binding)) {
-                event.setCanceled(true);
+            boolean activated = false;
+            while (binding.key().consumeClick()) {
+                activated = true;
             }
-            return;
+            if (!activated || !(minecraft.screen instanceof AbstractContainerScreen<?> screen)) continue;
+            if (screen instanceof NetworkTerminalScreen terminal && terminal.isSearchFocused()) continue;
+            if (CarryRulesControls.blocksContainerShortcuts(screen)) continue;
+            trigger(screen, binding);
         }
     }
 
@@ -66,7 +80,13 @@ public final class InventoryControls {
         int slotIndex = -1;
         if (binding.target() != Target.NONE) {
             Slot slot = screen.getSlotUnderMouse();
-            if (slot == null) return false;
+            if (slot == null) {
+                if (binding.target() == Target.HOVERED_MENU && isSort(binding.action())) {
+                    send(screen, binding.action(), -1);
+                    return true;
+                }
+                return false;
+            }
             if (binding.target() == Target.HOVERED_PLAYER) {
                 if (!(slot.container instanceof Inventory)) return false;
                 slotIndex = slot.getContainerSlot();
@@ -77,6 +97,12 @@ public final class InventoryControls {
         }
         send(screen, binding.action(), slotIndex);
         return true;
+    }
+
+    private static boolean isSort(InventoryActionPayload.Action action) {
+        return action == InventoryActionPayload.Action.SORT_ITEM
+                || action == InventoryActionPayload.Action.SORT_CATEGORY
+                || action == InventoryActionPayload.Action.SORT_QUANTITY;
     }
 
     private static ActionBinding binding(String name, InventoryActionPayload.Action action,
