@@ -51,6 +51,7 @@ public final class MobsStorage {
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onItemUsed);
         NeoForge.EVENT_BUS.addListener(NetworkRefillService::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(InventoryManagementService::onPlayerTick);
+        NeoForge.EVENT_BUS.addListener(InventoryManagementService::onLivingDrops);
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, BundleSelectionService::onItemStackedOnOther);
         NeoForge.EVENT_BUS.addListener(CarryRuleService::onPlayerTick);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, CarryRuleService::onItemPickup);

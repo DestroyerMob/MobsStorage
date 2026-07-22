@@ -24,6 +24,7 @@ public final class MobsStorageClient {
     public static void register(IEventBus modBus) {
         modBus.addListener(MobsStorageClient::registerMenuScreens);
         modBus.addListener(InventoryControls::registerKeyMappings);
+        modBus.addListener(LoadoutControls::registerKeyMappings);
         modBus.addListener(CarryRulesControls::registerKeyMappings);
         modBus.addListener(InventoryScrollControls::registerGuiLayers);
         modBus.addListener(BundleSelectionControls::registerTooltipComponents);
@@ -35,6 +36,7 @@ public final class MobsStorageClient {
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, BundleSelectionControls::onMouseScrolled);
         NeoForge.EVENT_BUS.addListener(BundleSelectionControls::onGatherTooltip);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onClientTick);
+        NeoForge.EVENT_BUS.addListener(LoadoutControls::onClientTick);
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, InventoryControls::onKey);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onMouse);
         NeoForge.EVENT_BUS.addListener(InventoryControls::onRender);

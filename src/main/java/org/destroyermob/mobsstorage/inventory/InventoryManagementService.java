@@ -11,10 +11,13 @@ import java.util.Set;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ArmorItem;
@@ -24,6 +27,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SwordItem;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
 import net.neoforged.neoforge.items.SlotItemHandler;
 import org.destroyermob.mobsstorage.network.InventoryActionPayload;
 import org.destroyermob.mobsstorage.networking.NetworkInventoryService;
@@ -70,6 +74,8 @@ public final class InventoryManagementService {
             swapHotbar(player, payload.slot());
         } else if (action == InventoryActionPayload.Action.SWAP_HORIZONTAL_SLOT) {
             swapHorizontalSlot(player, payload.slot());
+        } else if (action == InventoryActionPayload.Action.TOGGLE_LOADOUT) {
+            toggleLoadout(player);
         }
         applyHotbarPreferences(player, profile);
         player.getInventory().setChanged();
@@ -346,6 +352,49 @@ public final class InventoryManagementService {
         ItemStack secondStack = inventory.getItem(second);
         inventory.setItem(first, secondStack);
         inventory.setItem(second, firstStack);
+    }
+
+    private static void toggleLoadout(ServerPlayer player) {
+        EquipmentLoadout loadout = player.getData(ModAttachments.EQUIPMENT_LOADOUT);
+        List<ItemStack> equipped = equipped(player);
+        player.stopUsingItem();
+        setEquipped(player, loadout.inactive());
+        player.setData(ModAttachments.EQUIPMENT_LOADOUT,
+                new EquipmentLoadout(!loadout.combatActive(), equipped));
+        player.displayClientMessage(Component.translatable(loadout.combatActive()
+                ? "message.mobsstorage.loadout.utility"
+                : "message.mobsstorage.loadout.combat"), true);
+    }
+
+    private static List<ItemStack> equipped(ServerPlayer player) {
+        return List.of(
+                player.getMainHandItem().copy(),
+                player.getOffhandItem().copy(),
+                player.getItemBySlot(EquipmentSlot.HEAD).copy(),
+                player.getItemBySlot(EquipmentSlot.CHEST).copy(),
+                player.getItemBySlot(EquipmentSlot.LEGS).copy(),
+                player.getItemBySlot(EquipmentSlot.FEET).copy());
+    }
+
+    private static void setEquipped(ServerPlayer player, List<ItemStack> stacks) {
+        Inventory inventory = player.getInventory();
+        inventory.setItem(inventory.selected, stacks.get(0).copy());
+        player.setItemSlot(EquipmentSlot.OFFHAND, stacks.get(1).copy());
+        player.setItemSlot(EquipmentSlot.HEAD, stacks.get(2).copy());
+        player.setItemSlot(EquipmentSlot.CHEST, stacks.get(3).copy());
+        player.setItemSlot(EquipmentSlot.LEGS, stacks.get(4).copy());
+        player.setItemSlot(EquipmentSlot.FEET, stacks.get(5).copy());
+    }
+
+    public static void onLivingDrops(LivingDropsEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        EquipmentLoadout loadout = player.getExistingData(ModAttachments.EQUIPMENT_LOADOUT)
+                .orElse(EquipmentLoadout.EMPTY);
+        for (ItemStack stack : loadout.inactive()) {
+            if (!stack.isEmpty()) event.getDrops().add(new ItemEntity(
+                    player.level(), player.getX(), player.getY(), player.getZ(), stack.copy()));
+        }
+        player.setData(ModAttachments.EQUIPMENT_LOADOUT, EquipmentLoadout.EMPTY);
     }
 
     private static List<Integer> movableSlots(InventoryProfile profile) {

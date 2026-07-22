@@ -19,7 +19,7 @@ import org.destroyermob.mobsstorage.networking.NetworkService;
 import org.destroyermob.mobsstorage.storage.StorageResolver;
 
 public final class ModNetworking {
-    private static final String NETWORK_VERSION = "10";
+    private static final String NETWORK_VERSION = "11";
 
     private ModNetworking() {
     }

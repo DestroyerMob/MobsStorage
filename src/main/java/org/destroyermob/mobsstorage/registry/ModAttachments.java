@@ -8,6 +8,7 @@ import net.neoforged.neoforge.registries.NeoForgeRegistries;
 import org.destroyermob.mobsstorage.MobsStorage;
 import org.destroyermob.mobsstorage.inventory.InventoryProfile;
 import org.destroyermob.mobsstorage.inventory.CarryRuleSet;
+import org.destroyermob.mobsstorage.inventory.EquipmentLoadout;
 import org.destroyermob.mobsstorage.networking.NetworkNodeData;
 import org.destroyermob.mobsstorage.storage.LabelData;
 
@@ -39,6 +40,13 @@ public final class ModAttachments {
                     .serialize(CarryRuleSet.CODEC, CarryRuleSet::configured)
                     .copyOnDeath()
                     .sync((holder, player) -> holder == player, CarryRuleSet.STREAM_CODEC)
+                    .build());
+
+    public static final DeferredHolder<AttachmentType<?>, AttachmentType<EquipmentLoadout>> EQUIPMENT_LOADOUT =
+            TYPES.register("equipment_loadout", () -> AttachmentType.builder(() -> EquipmentLoadout.EMPTY)
+                    .serialize(EquipmentLoadout.CODEC, EquipmentLoadout::configured)
+                    .copyOnDeath()
+                    .sync((holder, player) -> holder == player, EquipmentLoadout.STREAM_CODEC)
                     .build());
 
     private ModAttachments() {
